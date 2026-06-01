@@ -49,7 +49,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<p style="color:#6366F1; font-weight:bold; text-transform:uppercase; font-size:12px; margin-bottom:0;">⚡ LiveScanner & Probability Engine</p>', unsafe_allow_html=True)
-st.title("📊 TRADING PRO: Engine de Pesos por Liga Online")
+st.title("📊 ANÁLISE DE FUTEBOL - By Freed Cesar")
 st.markdown("---")
 
 # =========================================================
@@ -396,6 +396,4 @@ with st.expander("🗂️ Central de Liquidez e Banco de Dados Histórico Online
 
     st.markdown("<br>", unsafe_allow_html=True)
     if not df_hist_view.empty:
-        # CORREÇÃO AQUI: Primeiro ordenamos por 'Date', depois recortamos as colunas de visualização
-        df_sorted_view = df_hist_view.sort_values(by="Date", ascending=False)
-        st.dataframe(df_sorted_view[["DateStr", "Time", "Home", "Score", "Away", "TOTALGOALS", "League"]], use_container_width=True)
+        st.dataframe(df_hist_view[["DateStr", "Time", "Home", "Score", "Away", "TOTALGOALS", "League"]].sort_values(by="Date", ascending=False), use_container_width=True)
