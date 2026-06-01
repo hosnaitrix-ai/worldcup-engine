@@ -86,7 +86,9 @@ def carregar_dados_online():
             
             for event in data.get('events', []):
                 status_type = event['status']['type']['name']
-                date_raw = pd.to_datetime(event['date']).tz_localize(None)
+                
+                # Captura em formato data pura e subtrai 3 horas para ajustar o fuso UTC para o de Brasília (UTC-3)
+                date_raw = pd.to_datetime(event['date']).tz_localize(None) - pd.Timedelta(hours=3)
                 
                 comp = event['competitions'][0]
                 home_node = comp['competitors'][0]
@@ -128,8 +130,8 @@ if df.empty:
     st.error("Nenhum dado pôde ser coletado das APIs online neste momento.")
     st.stop()
 
-# Ajuste fino temporal: Hoje à meia-noite local para evitar perda de jogos do dia atual
-hoje = pd.Timestamp.now().placeholder if hasattr(pd.Timestamp.now(), 'placeholder') else pd.Timestamp.now().floor('D')
+# Ajuste temporal local usando a data de hoje normalizada para o fuso brasileiro corrigido
+hoje = pd.Timestamp.now().floor('D')
 
 df_hist = df[df["GOLS_HOME"].notna()].copy()
 df_future = df[(df["GOLS_HOME"].isna()) & (df["Date"] >= hoje)].copy()
@@ -282,7 +284,6 @@ if not df_future.empty:
     df_proj = pd.DataFrame(saida)
     df_proj_futuro_real = df_proj[df_proj["RawDate"] >= hoje].copy()
     
-    # Organiza o Selectbox trazendo as datas mais próximas primeiro
     datas_disponiveis = sorted(df_proj_futuro_real["Date"].unique(), key=lambda x: pd.to_datetime(x, format="%d/%m/%Y"))
     
     if datas_disponiveis:
