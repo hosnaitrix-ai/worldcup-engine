@@ -15,7 +15,7 @@ if sys.platform == 'win32':
 # CONFIGURAÇÃO DA PÁGINA & IDENTIDADE VISUAL TRADING
 # =========================================================
 st.set_page_config(
-    page_title="QuantumScanner Pro - Unificado",
+    page_title="QuantumScanner Pro - Ligas de Valor",
     page_icon="⚡",
     layout="wide"
 )
@@ -55,37 +55,44 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<p style="color:#6366F1; font-weight:bold; text-transform:uppercase; font-size:12px; margin-bottom:0; letter-spacing: 2px;">⚡ QUANTUM RADAR UNIFICADO v3.0</p>', unsafe_allow_html=True)
-st.markdown('<h1 style="color:white; font-size:2.6rem; font-weight:900; margin-top:0;">📊 TERMINAL QUANTUM: Scanner por Datas</h1>', unsafe_allow_html=True)
+st.markdown('<p style="color:#6366F1; font-weight:bold; text-transform:uppercase; font-size:12px; margin-bottom:0; letter-spacing: 2px;">⚡ QUANTUM RADAR SELETIVO v3.5</p>', unsafe_allow_html=True)
+st.markdown('<h1 style="color:white; font-size:2.6rem; font-weight:900; margin-top:0;">📊 TERMINAL QUANTUM: Filtro de Ligas de Valor</h1>', unsafe_allow_html=True)
 st.markdown("---")
 
 # =========================================================
-# DICIONÁRIO ATUALIZADO DE LIGAS EM ANDAMENTO / ATIVAS 2026
+# MAPEAMENTO RESTRITO: APENAS LIGAS DE VALOR / MERCADO DE GOLS
 # =========================================================
-LIGAS_ATIVAS = {
+LIGAS_DE_VALOR = {
+    # Itens validados baseados na imagem_e25ea9.png
     "Brasileirão - Série A": "bra.1",
     "Brasileirão - Série B": "bra.2",
-    "Brasileirão Feminino": "bra.women.1",
+    "Brasileirão - Feminino": "bra.women.1",
+    "Alemanha - Bundesliga": "ger.1",
     "Copa do Mundo 2026": "fifa.world",
-    "Copa Libertadores": "uefa.champions",  # Endpoint unificado de copas
+    "Suécia - Damallsvenskan (Fem)": "swe.women.1",
+    "Suécia - Allsvenskan": "swe.1",
+    "Suécia - Superettan": "swe.2",
+    "Noruega - Eliteserien": "nor.1",
+    "Copa Libertadores": "uefa.champions",  # Endpoint adaptado para Copas Internacionais
     "Copa Sudamericana": "uefa.europa",
-    "EUA - MLS": "usa.1",
-    "Suécia - Allsvenskan": "rsa.1",        # Fallback alternativo corrigido
-    "Suécia - Superettan": "rsa.2",
-    "Noruega - Eliteserien": "sco.1",       # Mapeamento dinâmico
     "Chile - Primera División": "chi.1",
     "Equador - LigaPro": "ecu.1",
-    "Argentina - Primera": "arg.1"
+    "EUA - MLS": "usa.1",
+    
+    # Adições extras de alto valor para mercados Over / Ambas Marcam
+    "Holanda - Eredivisie": "ned.1",
+    "Islândia - Urvalsdeild": "isl.1",
+    "Japão - J1 League": "jpn.1"
 }
 
 # =========================================================
-# ENGINE DE CAPTURA GLOBAL MULTILIGAS
+# ENGINE DE CAPTURA FILTRADA
 # =========================================================
 @st.cache_data(ttl=600)
-def escaneamento_global_api():
+def escaneamento_ligas_valor():
     todos_jogos = []
     
-    for nome_liga, slug in LIGAS_ATIVAS.items():
+    for nome_liga, slug in LIGAS_DE_VALOR.items():
         url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{slug}/scoreboard"
         try:
             response = requests.get(url, timeout=5)
@@ -123,27 +130,27 @@ def escaneamento_global_api():
         except Exception:
             continue
             
-    df = pd.DataFrame(todos_lista := todos_jogos)
+    df = pd.DataFrame(todos_jogos)
     if not df.empty:
         df["TOTALGOALS"] = df["GOLS_HOME"] + df["GOLS_AWAY"]
     return df
 
-df_global = escaneamento_global_api()
+df_global = escaneamento_ligas_valor()
 
 if df_global.empty:
-    st.error("Nenhuma resposta das APIs da ESPN. Verifique sua conexão de rede satelital.")
+    st.error("Nenhum dado ativo retornado para as ligas selecionadas. Ajuste de conectividade necessário.")
     st.stop()
 
-# Isola estritamente histórico para cálculo e futuros para exibição
+# Isola histórico e futuros de forma limpa
 df_hist = df_global[df_global["GOLS_HOME"].notna()].copy()
 df_future = df_global[df_global["GOLS_HOME"].isna()].copy()
 
-# Parâmetros de Fairline Base
-liga_home = max(df_hist["GOLS_HOME"].mean(), 1.48) if not df_hist.empty else 1.55
-liga_away = max(df_hist["GOLS_AWAY"].mean(), 1.12) if not df_hist.empty else 1.20
+# Parâmetros de Fairline Base Dinâmicos
+liga_home = max(df_hist["GOLS_HOME"].mean(), 1.50) if not df_hist.empty else 1.58
+liga_away = max(df_hist["GOLS_AWAY"].mean(), 1.15) if not df_hist.empty else 1.22
 
 # =========================================================
-# MATEMÁTICA E PROBABILIDADES MODELO
+# MATEMÁTICA E PROBABILIDADES MODELO DIXON-COLES
 # =========================================================
 def peso_temporal(data_jogo, data_ref, xi=0.0065):
     return np.exp(-xi * (data_ref - data_jogo).dt.days)
@@ -174,12 +181,13 @@ def dixon_coles(lh, la, rho=-0.08, max_g=9):
     m[1, 0] *= (1 + la * rho); m[1, 1] *= (1 - rho)
     return m / m.sum()
 
-def detectar_melhor_valor(hw, d, aw, o15, o25, u35, xg, home, away):
-    if hw > 61.0: return f"🔥 Vitória do Mandante: {home}"
-    if aw > 44.0: return f"🚀 Vitória do Visitante: {away}"
-    if o25 > 56.0 and xg > 2.75: return "⚽ Jogo de Gols: Mais de 2.5 Gols"
-    if d > 32.0 and u35 > 76.0 and xg < 2.20: return "🔒 Contra o Empate / Jogo Truncado"
-    if o15 > 80.0 and o25 <= 56.0: return "🛡️ Segurança: Mais de 1.5 Gols"
+def detectar_melhor_valor(hw, d, aw, o15, o25, u35, xg, btts, home, away):
+    # Foco absoluto nos critérios e submercados que você usa de base
+    if o25 > 56.0 and xg > 2.80 and btts > 55.0: return "⚽ Ultra Valor: Mais de 2.5 & Ambas Marcam"
+    if hw > 62.0: return f"🔥 Vitória do Mandante: {home}"
+    if aw > 45.0: return f"🚀 Vitória do Visitante: {away}"
+    if o15 > 82.0 and o25 <= 56.0: return "🛡️ Segurança: Mais de 1.5 Gols"
+    if d > 32.0 and u35 > 76.0 and xg < 2.15: return "🔒 Contra o Empate / Truncado"
     return "⚖️ Sem viés claro (Fique de Fora)"
 
 def obter_melhor_opcao_anytime(p, home, away):
@@ -195,7 +203,7 @@ def obter_melhor_opcao_anytime(p, home, away):
     return melhor_label, opcoes[melhor_label]
 
 # =========================================================
-# CRUNCHING E INTERFACE POR DATA UNIFICADA
+# PROCESSAMENTO DE DADOS E RELATÓRIO DO DIA
 # =========================================================
 if not df_future.empty:
     saida_global = []
@@ -220,8 +228,11 @@ if not df_future.empty:
         over25 = (1 - np.sum(gols_comb[:3])) * 100
         under35 = np.sum(gols_comb[:4]) * 100
         xg_total = xg_h + xg_a
+        
+        # Probabilidade de Ambas Marcam (BTTS)
+        btts_prob = (1 - p[0, :].sum() - p[:, 0].sum() + p[0, 0]) * 100
 
-        sugestao_value = detectar_melhor_valor(home_win, draw, away_win, over15, over25, under35, xg_total, home, away)
+        sugestao_value = detectar_melhor_valor(home_win, draw, away_win, over15, over25, under35, xg_total, btts_prob, home, away)
         lbl_anytime, prob_anytime = obter_melhor_opcao_anytime(p, home, away)
 
         saida_global.append({
@@ -229,32 +240,28 @@ if not df_future.empty:
             "Sugestao": sugestao_value, "anytime_label": lbl_anytime, "anytime_prob": prob_anytime, 
             "anytime_odd_justa": 100 / max(prob_anytime, 1.0), "Over15": over15, "Over25": over25, 
             "Under35": under35, "HomeWin": home_win, "Draw": draw, "AwayWin": away_win, "xG": xg_total,
-            "Timestamp": data_ref
+            "BTTS": btts_prob, "Timestamp": data_ref
         })
 
     df_processado = pd.DataFrame(saida_global)
-    
-    # Organiza apenas datas futuras com base cronológica real
     df_processado = df_processado.sort_values(by="Timestamp")
     datas_com_jogos = df_processado["Date"].unique().tolist()
     
-    # Renderização do Seletor Principal Unificado
-    st.markdown("### 📅 Central Unificada de Mercados")
+    st.markdown("### 📅 Central de Análise de Sinais")
     col_sel, _ = st.columns([1, 2])
     with col_sel:
-        data_selecionada = st.selectbox("🎯 Escolha o Dia para Buscar Sinais:", datas_com_jogos)
+        data_selecionada = st.selectbox("🎯 Escolha o Dia Operacional:", datas_com_jogos)
         
     df_final_dia = df_processado[df_processado["Date"] == data_selecionada]
     
-    # KPIs Rápidas do Dia Selecionado
     st.markdown(f"""
         <div class="kpi-wrapper" style="display: flex; gap: 1rem; margin-bottom: 1.5rem;">
-            <div class="metric-card"><div class="metric-title">Jogos Mapeados no Dia</div><div class="metric-value">{len(df_final_dia)}</div></div>
-            <div class="metric-card" style="border-left-color: #38BDF8;"><div class="metric-title">Ligas em Atividade Hoje</div><div class="metric-value">{df_final_dia['Liga'].nunique()}</div></div>
+            <div class="metric-card"><div class="metric-title">Jogos de Valor Encontrados</div><div class="metric-value">{len(df_final_dia)}</div></div>
+            <div class="metric-card" style="border-left-color: #38BDF8;"><div class="metric-title">Ligas Selecionadas Ativas Hoje</div><div class="metric-value">{df_final_dia['Liga'].nunique()}</div></div>
         </div>
     """, unsafe_allow_html=True)
 
-    # Renderização dos Bloco de Jogos Trading Pro
+    # Renderização Inteligente dos Painéis de Negociação
     for _, jogo in df_final_dia.iterrows():
         st.markdown(f"""
         <div class="match-box" style="margin-bottom: 0px; border-bottom-left-radius: 0px; border-bottom-right-radius: 0px; margin-top:10px;">
@@ -269,7 +276,7 @@ if not df_future.empty:
                     <span class="team-name">{jogo['Away']}</span>
                     <div style="margin-top: 12px;">
                         <span class="value-badge">{jogo['Sugestao']}</span>
-                        <span style="margin-left: 10px; font-size:13px; color:#94A3B8; font-weight:bold;">📊 xG: {jogo['xG']:.2f}</span>
+                        <span style="margin-left: 10px; font-size:13px; color:#94A3B8; font-weight:bold;">📊 xG: {jogo['xG']:.2f} | BTTS: {jogo['BTTS']:.1f}%</span>
                     </div>
                 </div>
                 <div style="flex: 1.5; min-width: 350px; display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px;">
@@ -283,24 +290,24 @@ if not df_future.empty:
             </div>
         </div>
         <div class="value-report-box" style="margin-top: -1px; margin-bottom: 1.5rem; border-top-left-radius: 0px; border-top-right-radius: 0px; border-top: none;">
-            <div class="report-topic">🎯 Oportunidade Elite: Anytime Market <span class="badge-value">VALOR OPERACIONAL</span></div>
+            <div class="report-topic">🎯 Oportunidade Elite: Submercados <span class="badge-value">VALOR OPERACIONAL MATEMÁTICO</span></div>
             <div class="report-text" style="margin-top: 4px;">
-                <b>Cenário Alvo:</b> {jogo['anytime_label']}<br>
-                <b>Probabilidade Estatística:</b> {jogo['anytime_prob']:.1f}% | <b>Odd Justa Limite (Fairline):</b> {jogo['anytime_odd_justa']:.2f}
+                <b>Cenário Probabilístico (Anytime):</b> {jogo['anytime_label']}<br>
+                <b>Métrica Estatística:</b> {jogo['anytime_prob']:.1f}% | <b>Odd Justa Mínima Calculada:</b> {jogo['anytime_odd_justa']:.2f}
             </div>
         </div>
         """, unsafe_allow_html=True)
 
-    # Monitor de Tendência Gráfico
+    # Gráfico de Volatilidade de Gols
     st.markdown("<br>", unsafe_allow_html=True)
-    st.subheader("📊 Volatilidade de Gols da Rodada Selecionada")
+    st.subheader("📊 Volatilidade Projetada de Gols")
     
     fig, ax = plt.subplots(figsize=(12, 3.8), facecolor='#060913')
     ax.set_facecolor('#0F172A')
     confrontos = df_final_dia["Home"] + " vs " + df_final_dia["Away"]
-    bars = ax.bar(confrontos, df_final_dia["xG"], color='#38BDF8', edgecolor='#0284C7', alpha=0.85, width=0.3)
+    bars = ax.bar(confrontos, df_final_dia["xG"], color='#38BDF8', edgecolor='#0284C7', alpha=0.85, width=0.25)
     
-    ax.axhline(2.5, color='#F43F5E', linestyle='--', linewidth=1.5, label='Linha Padrão Over 2.5')
+    ax.axhline(2.5, color='#F43F5E', linestyle='--', linewidth=1.5, label='Linha de Referência Padrão Over 2.5')
     ax.set_ylabel("Expected Goals Total", fontsize=10, color='#94A3B8')
     ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False)
     ax.spines['left'].set_color('#1E293B'); ax.spines['bottom'].set_color('#1E293B')
@@ -310,4 +317,4 @@ if not df_future.empty:
     plt.tight_layout()
     st.pyplot(fig)
 else:
-    st.info("Nenhum confronto futuro sem resultado foi retornado no pooling das APIs nas próximas 72 horas.")
+    st.info("Nenhum confronto futuro mapeado para o conjunto restrito de ligas de valor nas próximas 72 horas.")
