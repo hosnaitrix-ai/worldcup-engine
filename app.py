@@ -49,7 +49,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<p style="color:#6366F1; font-weight:bold; text-transform:uppercase; font-size:12px; margin-bottom:0;">⚡ LiveScanner & Probability Engine</p>', unsafe_allow_html=True)
-st.title("📊 TRADING PRO: Engine de Pesos por Liga Online")
+st.title("📊 ANALISE DE FUTEBOL - By Freed Cesar")
 st.markdown("---")
 
 # =========================================================
