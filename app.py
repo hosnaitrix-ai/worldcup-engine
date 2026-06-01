@@ -22,7 +22,7 @@ st.markdown("""
     footer {visibility: hidden;}
     [data-testid="stHeader"] { background: rgba(6, 9, 19, 0.8); backdrop-filter: blur(8px); }
     .main-title { font-size: 2.5rem; font-weight: 900; background: linear-gradient(90deg, #38BDF8 0%, #818CF8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    .kpi-wrapper { display: flex; gap: 1.2rem; margin-top: 1rem; margin-bottom: 2rem; flex-wrap: wrap; }
+    .kpi-wrapper { display: flex; gap: 1.2rem; margin-top: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
     .kpi-card-premium { background: #0F172A; padding: 1.2rem 1.5rem; border-radius: 14px; border: 1px solid #1E293B; min-width: 240px; flex: 1; border-left: 5px solid #6366F1; }
     .kpi-title-premium { font-size: 11px; text-transform: uppercase; color: #64748B; letter-spacing: 2px; font-weight: 700; margin-bottom: 4px; }
     .kpi-value-premium { font-size: 1.8rem; font-weight: 800; color: #F8FAFC; }
@@ -38,7 +38,9 @@ st.markdown("""
     .val-goals { font-size: 13px; font-weight: 800; color: #34D399; }
     .val-btts { font-size: 13px; font-weight: 800; color: #FB7185; }
     .badge-signal-premium { background: linear-gradient(135deg, #312E81 0%, #4338CA 100%); color: #E0E7FF; padding: 6px 14px; border-radius: 8px; font-weight: 700; font-size: 12px; display: inline-block; margin-top: 1rem; border: 1px solid #4F46E5; }
-    .xg-indicator-premium { font-size: 12px; color: #64748B; font-weight: 700; margin-left: 15px; background: #1E293B; padding: 4px 10px; border-radius: 6px; }
+    
+    /* Estilização limpa do seletor de datas */
+    .stSelectbox label { color: #94A3B8 !important; font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -48,7 +50,7 @@ st.markdown('<h1 class="main-title">⚽ World Cup Live Scanner</h1>', unsafe_all
 # =========================================================
 # CONSUMO DA API DA ESPN (ONLINE)
 # =========================================================
-@st.cache_data(ttl=1800) # Atualiza a API automaticamente a cada 30 minutos
+@st.cache_data(ttl=900) # Atualiza a API automaticamente a cada 15 minutos
 def carregar_dados_espn():
     url = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard"
     try:
@@ -64,7 +66,6 @@ def carregar_dados_espn():
             home_node = comp['competitors'][0]
             away_node = comp['competitors'][1]
             
-            # Ajusta dinamicamente a ordem baseado no payload da ESPN
             h_team = home_node['team']['displayName'] if home_node['homeAway'] == 'home' else away_node['team']['displayName']
             a_team = away_node['team']['displayName'] if away_node['homeAway'] == 'away' else home_node['team']['displayName']
             
@@ -76,7 +77,9 @@ def carregar_dados_espn():
                 a_score = int(away_node['score']) if away_node['homeAway'] == 'away' else int(home_node['score'])
 
             jogos_lista.append({
-                "Date": date_raw,
+                "DateObj": date_raw,
+                "DateStr": date_raw.strftime("%d/%m/%Y"),
+                "TimeStr": date_raw.strftime("%H:%M"),
                 "Home": str(h_team).strip(),
                 "Away": str(a_team).strip(),
                 "GOLS_HOME": h_score,
@@ -88,7 +91,7 @@ def carregar_dados_espn():
             df["TOTALGOALS"] = df["GOLS_HOME"] + df["GOLS_AWAY"]
         return df
     except Exception as e:
-        return pd.DataFrame(columns=["Date", "Home", "Away", "GOLS_HOME", "GOLS_AWAY", "TOTALGOALS"])
+        return pd.DataFrame(columns=["DateObj", "DateStr", "TimeStr", "Home", "Away", "GOLS_HOME", "GOLS_AWAY", "TOTALGOALS"])
 
 df_raw = carregar_dados_espn()
 
@@ -96,6 +99,7 @@ if df_raw.empty:
     st.error("Não foi possível coletar dados da API da ESPN neste momento. O servidor pode estar indisponível.")
     st.stop()
 
+# Separação Cirúrgica entre Histórico Real e Prospecção Futura
 df_hist = df_raw[df_raw["GOLS_HOME"].notna()].copy()
 df_future = df_raw[df_raw["GOLS_HOME"].isna()].copy()
 
@@ -112,11 +116,11 @@ def peso_temporal(data_jogo, data_ref, xi=0.0065):
 
 def forca_time(team, side, data_ref):
     if df_hist.empty: return 1.0, 1.0
-    jogos = df_hist[df_hist["Date"] < data_ref].copy()
+    jogos = df_hist[df_hist["DateObj"] < data_ref].copy()
     t = jogos[jogos["Home"] == team] if side == "home" else jogos[jogos["Away"] == team]
     if len(t) == 0: return 1.0, 1.0
     
-    t.loc[:, "peso"] = peso_temporal(t["Date"], data_ref)
+    t.loc[:, "peso"] = peso_temporal(t["DateObj"], data_ref)
     if side == "home":
         atk = np.average(t["GOLS_HOME"], weights=t["peso"])
         def_ = np.average(t["GOLS_AWAY"], weights=t["peso"])
@@ -146,14 +150,17 @@ def detectar_melhor_valor(hw, d, aw, o15, o25, u35, btts, xg, home, away):
 # =========================================================
 # RENDERIZAÇÃO DO DASHBOARD PRINCIPAL
 # =========================================================
-# Cálculo isolado prévio para evitar conflito de chaves nas f-strings
 media_gols_val = df_hist['TOTALGOALS'].mean() if not df_hist.empty else 2.75
 
 st.markdown(f"""
     <div class="kpi-wrapper">
         <div class="kpi-card-premium" style="border-left-color: #38BDF8;">
-            <div class="kpi-title-premium">Partidas Analisadas</div>
+            <div class="kpi-title-premium">Total de Jogos Identificados</div>
             <div class="kpi-value-premium">{len(df_raw)}</div>
+        </div>
+        <div class="kpi-card-premium" style="border-left-color: #A78BFA;">
+            <div class="kpi-title-premium">Confrontos Futuros Mapeados</div>
+            <div class="kpi-value-premium">{len(df_future)}</div>
         </div>
         <div class="kpi-card-premium" style="border-left-color: #34D399;">
             <div class="kpi-title-premium">Média Gols (Base Real)</div>
@@ -162,49 +169,69 @@ st.markdown(f"""
     </div>
 """, unsafe_allow_html=True)
 
-# Processamento e mapeamento dos sinais preditivos
-saida = []
-for _, r in df_raw.iterrows():
-    home, away, data_ref = r["Home"], r["Away"], r["Date"]
-    ah, dh = forca_time(home, "home", data_ref)
-    aa, da = forca_time(away, "away", data_ref)
+# =========================================================
+# INTERFACE DE FILTRO DE DATAS (APENAS JOGOS FUTUROS)
+# =========================================================
+if not df_future.empty:
+    # Captura as datas únicas futuras e ordena de forma cronológica
+    df_future_ordenado = df_future.sort_values(by="DateObj")
+    datas_futuras_disponiveis = df_future_ordenado["DateStr"].unique().tolist()
     
-    xg_h = np.clip((ah * da * liga_home), 0.2, 3.8)
-    xg_a = np.clip((aa * dh * liga_away), 0.2, 3.5)
+    st.markdown("### 📅 Filtragem Avançada de Mercado")
+    col_filtro, _ = st.columns([1, 2])
+    with col_filtro:
+        data_selecionada = st.selectbox("🎯 Escolha uma Data para Escanear:", datas_futuras_disponiveis)
     
-    p = dixon_coles(xg_h, xg_a)
-    hw = np.sum(np.tril(p, -1)) * 100
-    d = np.sum(np.diag(p)) * 100
-    aw = np.sum(np.triu(p, 1)) * 100
+    # Filtra os dados apenas para a data que o usuário escolheu
+    df_filtrado_dia = df_future[df_future["DateStr"] == data_selecionada]
     
-    g_comb = np.array([np.sum([p[i, j] for i in range(p.shape[0]) for j in range(p.shape[0]) if i + j == k]) for k in range(15)])
-    o15, o25, u35 = (1 - g_comb[0] - g_comb[1]) * 100, (1 - np.sum(g_comb[:3])) * 100, np.sum(g_comb[:4]) * 100
-    btts = np.sum(p[1:, 1:]) * 100
-    xg_t = xg_h + xg_a
-    
-    sugestao = detectar_melhor_valor(hw, d, aw, o15, o25, u35, btts, xg_t, home, away)
-    
-    saida.append({
-        "Match": f"{home} x {away}", "Sugestao": sugestao, "HomeWin": hw, "Draw": d, "AwayWin": aw,
-        "O15": o15, "O25": o25, "U35": u35, "BTTS": btts, "xG": xg_t
-    })
+    # Processamento matemático e geração dos Cards
+    saida = []
+    for _, r in df_filtrado_dia.iterrows():
+        home, away, data_ref, hora_jogo = r["Home"], r["Away"], r["DateObj"], r["TimeStr"]
+        ah, dh = forca_time(home, "home", data_ref)
+        aa, da = forca_time(away, "away", data_ref)
+        
+        xg_h = np.clip((ah * da * liga_home), 0.2, 3.8)
+        xg_a = np.clip((aa * dh * liga_away), 0.2, 3.5)
+        
+        p = dixon_coles(xg_h, xg_a)
+        hw = np.sum(np.tril(p, -1)) * 100
+        d = np.sum(np.diag(p)) * 100
+        aw = np.sum(np.triu(p, 1)) * 100
+        
+        g_comb = np.array([np.sum([p[i, j] for i in range(p.shape[0]) for j in range(p.shape[0]) if i + j == k]) for k in range(15)])
+        o15, o25, u35 = (1 - g_comb[0] - g_comb[1]) * 100, (1 - np.sum(g_comb[:3])) * 100, np.sum(g_comb[:4]) * 100
+        btts = np.sum(p[1:, 1:]) * 100
+        xg_t = xg_h + xg_a
+        
+        sugestao = detectar_melhor_valor(hw, d, aw, o15, o25, u35, btts, xg_t, home, away)
+        
+        saida.append({
+            "Match": f"{home} x {away}", "Hora": hora_jogo, "Sugestao": sugestao, 
+            "HomeWin": hw, "Draw": d, "AwayWin": aw, "O15": o15, "O25": o25, "U35": u35, "BTTS": btts, "xG": xg_t
+        })
 
-# Renderização do Layout Mobile-Friendly
-st.markdown("### 🔮 Scanner de Sinais da Rodada")
-for j in saida:
-    st.markdown(f"""
-    <div class="match-container-premium">
-        <div class="match-meta-premium"><span>🤖 ENGINE LIVE DATA</span><span>xG Estimado: {j['xG']:.2f}</span></div>
-        <div class="team-row"><span>{j['Match']}</span></div>
-        <div class="badge-signal-premium">{j['Sugestao']}</div>
-        <div class="odds-matrix-premium">
-            <div class="odd-slot-premium"><div class="odd-name-premium">Casa</div><div class="val-home-away">{j['HomeWin']:.1f}%</div></div>
-            <div class="odd-slot-premium"><div class="odd-name-premium">Empate</div><div class="val-draw">{j['Draw']:.1f}%</div></div>
-            <div class="odd-slot-premium"><div class="odd-name-premium">Fora</div><div class="val-home-away">{j['AwayWin']:.1f}%</div></div>
-            <div class="odd-slot-premium"><div class="odd-name-premium">O1.5</div><div class="val-goals">{j['O15']:.1f}%</div></div>
-            <div class="odd-slot-premium"><div class="odd-name-premium">O2.5</div><div class="val-goals">{j['O25']:.1f}%</div></div>
-            <div class="odd-slot-premium"><div class="odd-name-premium">U3.5</div><div class="val-goals">{j['U35']:.1f}%</div></div>
-            <div class="odd-slot-premium"><div class="odd-name-premium">BTTS</div><div class="val-btts">{j['BTTS']:.1f}%</div></div>
+    st.markdown(f"### 🔮 Sinais Ativos para o Dia {data_selecionada}")
+    for j in saida:
+        st.markdown(f"""
+        <div class="match-container-premium">
+            <div class="match-meta-premium">
+                <span>⏰ HORÁRIO INICIAL: {j['Hora']}</span>
+                <span>xG Estimado: {j['xG']:.2f}</span>
+            </div>
+            <div class="team-row"><span>{j['Match']}</span></div>
+            <div class="badge-signal-premium">{j['Sugestao']}</div>
+            <div class="odds-matrix-premium">
+                <div class="odd-slot-premium"><div class="odd-name-premium">Casa</div><div class="val-home-away">{j['HomeWin']:.1f}%</div></div>
+                <div class="odd-slot-premium"><div class="odd-name-premium">Empate</div><div class="val-draw">{j['Draw']:.1f}%</div></div>
+                <div class="odd-slot-premium"><div class="odd-name-premium">Fora</div><div class="val-home-away">{j['AwayWin']:.1f}%</div></div>
+                <div class="odd-slot-premium"><div class="odd-name-premium">O1.5</div><div class="val-goals">{j['O15']:.1f}%</div></div>
+                <div class="odd-slot-premium"><div class="odd-name-premium">O2.5</div><div class="val-goals">{j['O25']:.1f}%</div></div>
+                <div class="odd-slot-premium"><div class="odd-name-premium">U3.5</div><div class="val-goals">{j['U35']:.1f}%</div></div>
+                <div class="odd-slot-premium"><div class="odd-name-premium">BTTS</div><div class="val-btts">{j['BTTS']:.1f}%</div></div>
+            </div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
+else:
+    st.info("Todos os jogos recebidos pela API para esta chave de competição já foram encerrados. Não há partidas futuras agendadas neste momento.")
