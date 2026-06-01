@@ -64,15 +64,15 @@ LIGAS_MAPA = {
 }
 
 # =========================================================
-# MOTOR DE CAPTURA ONLINE AVANÇADO (FILTRO DE DATAS AMPLO)
+# MOTOR DE CAPTURA ONLINE AVANÇADO
 # =========================================================
 @st.cache_data(ttl=600)
 def carregar_dados_online():
     todos_jogos = []
     
     for nome_liga, config in LIGAS_MAPA.items():
-        # Adicionado o parâmetro ?dates=20260101-20260630 para forçar a API a entregar o calendário completo do semestre
-        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates=20260101-20260630&limit=300"
+        # Busca o calendário amplo para alimentar o histórico de forças e as rodadas futuras
+        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates=20260101-20260730&limit=300"
         try:
             response = requests.get(url, timeout=8)
             if response.status_code != 200: continue
@@ -80,7 +80,7 @@ def carregar_dados_online():
             
             for event in data.get('events', []):
                 status_type = event['status']['type']['name']
-                date_raw = pd.to_datetime(event['date'])
+                date_raw = pd.to_datetime(event['date']).tz_localize(None) # Remove fuso horário para bater com o local
                 
                 comp = event['competitions'][0]
                 home_node = comp['competitors'][0]
@@ -92,7 +92,6 @@ def carregar_dados_online():
                 h_score = np.nan
                 a_score = np.nan
                 
-                # Mapeia se o jogo já aconteceu para registrar no bando de dados de cálculo
                 if status_type in ["STATUS_FULL_TIME", "STATUS_FINAL"]:
                     h_score = int(home_node['score']) if home_node['homeAway'] == 'home' else int(away_node['score'])
                     a_score = int(away_node['score']) if away_node['homeAway'] == 'away' else int(home_node['score'])
@@ -114,7 +113,6 @@ def carregar_dados_online():
     df = pd.DataFrame(todos_jogos)
     if not df.empty:
         df["TOTALGOALS"] = df["GOLS_HOME"] + df["GOLS_AWAY"]
-        # Remove duplicados por ventura vindos da API
         df = df.drop_duplicates(subset=["DateStr", "Home", "Away"])
     return df
 
@@ -124,8 +122,12 @@ if df.empty:
     st.error("Nenhum dado pôde ser coletado das APIs online neste momento.")
     st.stop()
 
+# Separação estrita usando a data atualizada de hoje
+hoje = pd.Timestamp.now().normalize()
+
 df_hist = df[df["GOLS_HOME"].notna()].copy()
-df_future = df[df["GOLS_HOME"].isna()].copy()
+# O df_future passa a aceitar apenas jogos com data maior ou igual a HOJE
+df_future = df[(df["GOLS_HOME"].isna()) & (df["Date"] >= hoje)].copy()
 
 # =========================================================
 # FUNÇÕES MATEMÁTICAS E PREDITIVAS
@@ -254,6 +256,7 @@ if not df_future.empty:
         odd_justa = 100 / max(prob_anytime, 1.0)
 
         saida.append({
+            "RawDate": r["Date"], # Mantido para ordenação precisa de objetos datetime
             "Date": r["DateStr"], 
             "Time": r["Time"],
             "Home": home, 
@@ -274,56 +277,57 @@ if not df_future.empty:
 
     df_proj = pd.DataFrame(saida)
     
-    # Ordenação lógica das datas futuras encontradas no calendário amplo
-    datas_disponiveis = sorted(df_proj["Date"].unique(), key=lambda x: pd.to_datetime(x, format="%d/%m/%Y"))
+    # Filtra e ordena apenas as datas de hoje para frente
+    df_proj_futuro_real = df_proj[df_proj["RawDate"] >= hoje].copy()
+    datas_disponiveis = sorted(df_proj_futuro_real["Date"].unique(), key=lambda x: pd.to_datetime(x, format="%d/%m/%Y"))
     
-    col_sel, _ = st.columns([1, 3])
-    with col_sel:
-        data_selecionada = st.selectbox("🎯 Filtrar Rodada por Data:", datas_disponiveis)
-    
-    df_proj_filtrado = df_proj[df_proj["Date"] == data_selecionada]
+    if datas_disponiveis:
+        col_sel, _ = st.columns([1, 3])
+        with col_sel:
+            data_selecionada = st.selectbox("🎯 Filtrar Rodada por Data (Próximos Jogos):", datas_disponiveis)
+        
+        df_proj_filtrado = df_proj_futuro_real[df_proj_futuro_real["Date"] == data_selecionada]
 
-    for _, jogo in df_proj_filtrado.iterrows():
-        st.markdown(f"""
-        <div class="match-box" style="margin-bottom: 0px; border-bottom-left-radius: 0px; border-bottom-right-radius: 0px;">
-            <div class="match-header">
-                <span>📅 Evento: {jogo['Date']} - {jogo['Time']} | Projeção Quantitativa Dixon-Coles</span>
-                <span class="league-badge">{jogo['League']}</span>
-            </div>
-            <div class="row" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
-                <div style="flex: 1; min-width: 280px;">
-                    <span class="team-name">{jogo['Home']}</span>
-                    <span class="vs-badge">VS</span>
-                    <span class="team-name">{jogo['Away']}</span>
-                    <div style="margin-top: 12px;">
-                        <span class="value-badge">{jogo['💡 Sugestão Value']}</span>
-                        <span style="margin-left: 10px; font-size:13px; color:#475569; font-weight:bold;">📊 xG Estimado: {jogo['Expected Goals']}</span>
+        for _, jogo in df_proj_filtrado.iterrows():
+            st.markdown(f"""
+            <div class="match-box" style="margin-bottom: 0px; border-bottom-left-radius: 0px; border-bottom-right-radius: 0px;">
+                <div class="match-header">
+                    <span>📅 Evento: {jogo['Date']} - {jogo['Time']} | Projeção Quantitativa Dixon-Coles</span>
+                    <span class="league-badge">{jogo['League']}</span>
+                </div>
+                <div class="row" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+                    <div style="flex: 1; min-width: 280px;">
+                        <span class="team-name">{jogo['Home']}</span>
+                        <span class="vs-badge">VS</span>
+                        <span class="team-name">{jogo['Away']}</span>
+                        <div style="margin-top: 12px;">
+                            <span class="value-badge">{jogo['💡 Sugestão Value']}</span>
+                            <span style="margin-left: 10px; font-size:13px; color:#475569; font-weight:bold;">📊 xG Estimado: {jogo['Expected Goals']}</span>
+                        </div>
+                    </div>
+                    <div style="flex: 1.5; min-width: 350px; display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-top: 10px;">
+                        <div><div class="market-title">Casa</div><div class="odd-box-back">{jogo['Home Win %']}%</div></div>
+                        <div><div class="market-title">Empate</div><div class="odd-box-lay">{jogo['Draw %']}%</div></div>
+                        <div><div class="market-title">Fora</div><div class="odd-box-back">{jogo['Away Win %']}%</div></div>
+                        <div><div class="market-title">Mais 1.5</div><div class="odd-box-goals">{jogo['Over 1.5 %']}%</div></div>
+                        <div><div class="market-title">Mais 2.5</div><div class="odd-box-goals">{jogo['Over 2.5 %']}%</div></div>
+                        <div><div class="market-title">Menos 3.5</div><div class="odd-box-goals">{jogo['Under 3.5 %']}%</div></div>
                     </div>
                 </div>
-                <div style="flex: 1.5; min-width: 350px; display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-top: 10px;">
-                    <div><div class="market-title">Casa</div><div class="odd-box-back">{jogo['Home Win %']}%</div></div>
-                    <div><div class="market-title">Empate</div><div class="odd-box-lay">{jogo['Draw %']}%</div></div>
-                    <div><div class="market-title">Fora</div><div class="odd-box-back">{jogo['Away Win %']}%</div></div>
-                    <div><div class="market-title">Mais 1.5</div><div class="odd-box-goals">{jogo['Over 1.5 %']}%</div></div>
-                    <div><div class="market-title">Mais 2.5</div><div class="odd-box-goals">{jogo['Over 2.5 %']}%</div></div>
-                    <div><div class="market-title">Menos 3.5</div><div class="odd-box-goals">{jogo['Under 3.5 %']}%</div></div>
+            </div>
+            
+            <div class="value-report-box" style="margin-top: -1px; margin-bottom: 1.5rem; border-top-left-radius: 0px; border-top-right-radius: 0px; border-top: none;">
+                <div class="report-topic">🎯 Oportunidade Elite: Resultado a Qualquer Momento <span class="badge-value">HÁ VALOR DETECTADO</span></div>
+                <div class="report-text" style="margin-top: 6px;">
+                    <b>Entrada Selecionada:</b> {jogo['anytime_label']}<br>
+                    <b>Probabilidade de Ocorrência:</b> {jogo['anytime_prob']:.1f}% | <b>Odd Justa Limite:</b> {jogo['anytime_odd_justa']:.2f}
                 </div>
             </div>
-        </div>
-        
-        <div class="value-report-box" style="margin-top: -1px; margin-bottom: 1.5rem; border-top-left-radius: 0px; border-top-right-radius: 0px; border-top: none;">
-            <div class="report-topic">🎯 Oportunidade Elite: Resultado a Qualquer Momento <span class="badge-value">HÁ VALOR DETECTADO</span></div>
-            <div class="report-text" style="margin-top: 6px;">
-                <b>Entrada Selecionada:</b> {jogo['anytime_label']}<br>
-                <b>Probabilidade de Ocorrência:</b> {jogo['anytime_prob']:.1f}% | <b>Odd Justa Limite:</b> {jogo['anytime_odd_justa']:.2f}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
 
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.subheader("📊 Histograma de Linhas de Gols Ativas (Soma de xG)")
-    
-    if not df_proj_filtrado.empty:
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.subheader("📊 Histograma de Linhas de Gols Ativas (Soma de xG)")
+        
         fig, ax = plt.subplots(figsize=(12, 4), facecolor='#1E293B')
         ax.set_facecolor('#0F172A')
         
@@ -359,15 +363,18 @@ if not df_future.empty:
         plt.legend(frameon=True, facecolor='#0F172A', edgecolor='#334155', labelcolor='white')
         plt.tight_layout()
         st.pyplot(fig)
+    else:
+        st.info("Nenhum confronto futuro (de hoje em diante) foi encontrado no calendário da API para estas ligas.")
 else:
     st.info("Nenhum confronto futuro sem resultado foi retornado pela API neste momento.")
 
 # =========================================================
-# CENTRAL DE LIQUIDEZ COM HISTÓRICO REAL AMPLO
+# CENTRAL DE LIQUIDEZ COM HISTÓRICO REAL AMPLO (EM EXPANDER)
 # =========================================================
 st.markdown("---")
-with st.expander("🗂️ Central de Liquidez e Estatísticas Gerais Online"):
-    if not df_proj.empty:
+with st.expander("🗂️ Central de Liquidez e Banco de Dados Histórico Online"):
+    # O histórico completo continua guardado aqui para consulta se você quiser conferir os dados antigos usados no cálculo
+    if not df_future.empty and not df_proj.empty:
         liga_default = df_proj["League"].iloc[0]
         df_hist_view = df_hist[df_hist["League"] == liga_default]
     else:
@@ -375,7 +382,7 @@ with st.expander("🗂️ Central de Liquidez e Estatísticas Gerais Online"):
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.markdown(f'<div class="metric-card"><div class="metric-title">Amostragem Capturada (API)</div><div class="metric-value">{len(df_hist_view)} Jogos</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card"><div class="metric-title">Amostragem Base (API)</div><div class="metric-value">{len(df_hist_view)} Jogos</div></div>', unsafe_allow_html=True)
     with col2:
         media_g_hist = df_hist_view["TOTALGOALS"].mean() if not df_hist_view.empty else 0.0
         st.markdown(f'<div class="metric-card"><div class="metric-title">Média de Gols Dinâmica</div><div class="metric-value">{media_g_hist:.2f}</div></div>', unsafe_allow_html=True)
@@ -385,4 +392,4 @@ with st.expander("🗂️ Central de Liquidez e Estatísticas Gerais Online"):
 
     st.markdown("<br>", unsafe_allow_html=True)
     if not df_hist_view.empty:
-        st.dataframe(df_hist_view[["DateStr", "Time", "Home", "Score", "Away", "TOTALGOALS", "League"]].sort_values(by="DateStr", ascending=False), use_container_width=True)
+        st.dataframe(df_hist_view[["DateStr", "Time", "Home", "Score", "Away", "TOTALGOALS", "League"]].sort_values(by="Date", ascending=False), use_container_width=True)
