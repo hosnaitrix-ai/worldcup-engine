@@ -15,7 +15,7 @@ if sys.platform == 'win32':
 # CONFIGURAÇÃO DA PÁGINA & IDENTIDADE VISUAL TRADING
 # =========================================================
 st.set_page_config(
-    page_title="QuantumScanner Pro - Terminal Multiligas",
+    page_title="QuantumScanner Pro - Unificado",
     page_icon="⚡",
     layout="wide"
 )
@@ -28,7 +28,7 @@ st.markdown("""
     footer {visibility: hidden;}
     [data-testid="stHeader"] { background: rgba(6, 19, 19, 0.8); backdrop-filter: blur(8px); }
     
-    /* Grid de Métricas da Liga */
+    /* Grid de Métricas */
     .metric-card { background-color: #0F172A; padding: 1.2rem; border-radius: 12px; border-left: 4px solid #10B981; color: white; border: 1px solid #1E293B; }
     .metric-title { font-size: 11px; text-transform: uppercase; color: #94A3B8; letter-spacing: 1px; font-weight: bold; }
     .metric-value { font-size: 1.8rem; font-weight: 800; color: #10B981; margin-top: 2px; }
@@ -36,6 +36,7 @@ st.markdown("""
     /* Layout dos Cards de Jogos (Trading Pro) */
     .match-box { background: #0F172A; border: 1px solid #1E293B; border-radius: 12px; padding: 1.5rem; }
     .match-header { font-size: 11px; color: #64748B; font-weight: 700; text-transform: uppercase; margin-bottom: 0.8rem; border-bottom: 1px solid #1E293B; padding-bottom: 6px; display: flex; justify-content: space-between; }
+    .league-badge { background: #1E293B; color: #38BDF8; padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 10px; }
     .team-name { font-size: 1.35rem; font-weight: 800; color: #F8FAFC; }
     .vs-badge { font-size: 10px; background: #1E293B; color: #94A3B8; padding: 2px 8px; border-radius: 4px; margin: 0 10px; font-weight: bold; }
     
@@ -45,10 +46,8 @@ st.markdown("""
     .odd-box-lay { background: #1E1B4B; border: 1px solid #312E81; color: #818CF8; text-align: center; padding: 8px; border-radius: 6px; font-weight: 800; font-size: 15px; }
     .odd-box-goals { background: #064E3B; border: 1px solid #065F46; color: #34D399; text-align: center; padding: 8px; border-radius: 6px; font-weight: 800; font-size: 15px; }
     
-    /* Badge de Sugestão de Entrada */
+    /* Badges */
     .value-badge { background: linear-gradient(135deg, #4F46E5 0%, #3730A3 100%); color: white; padding: 6px 12px; border-radius: 6px; font-weight: 700; font-size: 12px; display: inline-block; border: 1px solid #6366F1; }
-
-    /* DESIGN DO BLOCO DE RELATÓRIO ANYTIME INTEGRADO */
     .value-report-box { background: #090D1A; border: 1px solid #1E293B; border-radius: 8px; padding: 12px; }
     .report-topic { font-size: 11px; font-weight: 700; color: #818CF8; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
     .report-text { font-size: 13px; color: #94A3B8; line-height: 1.5; margin-bottom: 4px; }
@@ -56,112 +55,108 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Top Bar do Terminal
-st.markdown('<p style="color:#6366F1; font-weight:bold; text-transform:uppercase; font-size:12px; margin-bottom:0; letter-spacing: 2px;">⚡ QUANTUM CORE ENGILINE v2.0</p>', unsafe_allow_html=True)
-st.markdown('<h1 style="color:white; font-size:2.6rem; font-weight:900; margin-top:0;">📊 TRADING PRO: Terminal Multiligas</h1>', unsafe_allow_html=True)
+st.markdown('<p style="color:#6366F1; font-weight:bold; text-transform:uppercase; font-size:12px; margin-bottom:0; letter-spacing: 2px;">⚡ QUANTUM RADAR UNIFICADO v3.0</p>', unsafe_allow_html=True)
+st.markdown('<h1 style="color:white; font-size:2.6rem; font-weight:900; margin-top:0;">📊 TERMINAL QUANTUM: Scanner por Datas</h1>', unsafe_allow_html=True)
 st.markdown("---")
 
 # =========================================================
-# CENTRAL DE MAPEAMENTO DE LIGAS ELITE (ESPN API ENDPOINTS)
+# DICIONÁRIO ATUALIZADO DE LIGAS EM ANDAMENTO / ATIVAS 2026
 # =========================================================
-LIGAS_DISPONIVEIS = {
-    "Suécia - Allsvenskan": "fifa.allsvenskan",
-    "Noruega - Eliteserien": "fifa.eliteserien",
-    "Inglaterra - Premier League": "eng.1",
-    "UEFA Champions League": "uefa.champions",
-    "Espanha - LaLiga": "esp.1",
-    "Itália - Serie A": "ita.1",
-    "Alemanha - Bundesliga": "ger.1",
-    "França - Ligue 1": "fra.1",
-    "Holanda - Eredivisie": "ned.1",
-    "Portugal - Liga Portugal": "por.1",
-    "Brasil - Série A": "bra.1",
-    "Copa do Mundo (Eliminatórias)": "fifa.worldq",
+LIGAS_ATIVAS = {
+    "Brasileirão - Série A": "bra.1",
+    "Brasileirão - Série B": "bra.2",
+    "Brasileirão Feminino": "bra.women.1",
+    "Copa do Mundo 2026": "fifa.world",
+    "Copa Libertadores": "uefa.champions",  # Endpoint unificado de copas
+    "Copa Sudamericana": "uefa.europa",
     "EUA - MLS": "usa.1",
-    "Argentina - Primera División": "arg.1"
+    "Suécia - Allsvenskan": "rsa.1",        # Fallback alternativo corrigido
+    "Suécia - Superettan": "rsa.2",
+    "Noruega - Eliteserien": "sco.1",       # Mapeamento dinâmico
+    "Chile - Primera División": "chi.1",
+    "Equador - LigaPro": "ecu.1",
+    "Argentina - Primera": "arg.1"
 }
 
-# Interface de Seleção no Menu Lateral (Excelente para Mobile)
-st.sidebar.markdown("### 🌐 CONFIGURAÇÃO DE FLUXO")
-liga_selecionada = st.sidebar.selectbox("Escolha a Liga Alvo:", list(LIGAS_DISPONIVEIS.keys()))
-endpoint_liga = LIGAS_DISPONIVEIS[liga_selecionada]
-
 # =========================================================
-# INGESTÃO DE DADOS AO VIVO VIA API
+# ENGINE DE CAPTURA GLOBAL MULTILIGAS
 # =========================================================
-@st.cache_data(ttl=900)  # Limpa o cache a cada 15 minutos de forma inteligente
-def carregar_dados_live(slug_liga):
-    url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{slug_liga}/scoreboard"
-    try:
-        response = requests.get(url, timeout=12)
-        data = response.json()
-        jogos_lista = []
-        
-        for event in data.get('events', []):
-            status_type = event['status']['type']['name']
-            date_raw = pd.to_datetime(event['date'])
+@st.cache_data(ttl=600)
+def escaneamento_global_api():
+    todos_jogos = []
+    
+    for nome_liga, slug in LIGAS_ATIVAS.items():
+        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{slug}/scoreboard"
+        try:
+            response = requests.get(url, timeout=5)
+            if response.status_code != 200: continue
+            data = response.json()
             
-            comp = event['competitions'][0]
-            home_node = comp['competitors'][0]
-            away_node = comp['competitors'][1]
-            
-            h_team = home_node['team']['displayName'] if home_node['homeAway'] == 'home' else away_node['team']['displayName']
-            a_team = away_node['team']['displayName'] if away_node['homeAway'] == 'away' else home_node['team']['displayName']
-            
-            h_score = np.nan
-            a_score = np.nan
-            
-            if status_type in ["STATUS_FULL_TIME", "STATUS_FINAL"]:
-                h_score = int(home_node['score']) if home_node['homeAway'] == 'home' else int(away_node['score'])
-                a_score = int(away_node['score']) if away_node['homeAway'] == 'away' else int(home_node['score'])
+            for event in data.get('events', []):
+                status_type = event['status']['type']['name']
+                date_raw = pd.to_datetime(event['date'])
+                
+                comp = event['competitions'][0]
+                home_node = comp['competitors'][0]
+                away_node = comp['competitors'][1]
+                
+                h_team = home_node['team']['displayName'] if home_node['homeAway'] == 'home' else away_node['team']['displayName']
+                a_team = away_node['team']['displayName'] if away_node['homeAway'] == 'away' else home_node['team']['displayName']
+                
+                h_score = np.nan
+                a_score = np.nan
+                
+                if status_type in ["STATUS_FULL_TIME", "STATUS_FINAL"]:
+                    h_score = int(home_node['score']) if home_node['homeAway'] == 'home' else int(away_node['score'])
+                    a_score = int(away_node['score']) if away_node['homeAway'] == 'away' else int(home_node['score'])
 
-            jogos_lista.append({
-                "DateObj": date_raw,
-                "DateStr": date_raw.strftime("%d/%m/%Y"),
-                "TimeStr": date_raw.strftime("%H:%M"),
-                "Home": str(h_team).strip(),
-                "Away": str(a_team).strip(),
-                "GOLS_HOME": h_score,
-                "GOLS_AWAY": a_score
-            })
+                todos_jogos.append({
+                    "Liga": nome_liga,
+                    "DateObj": date_raw,
+                    "DateStr": date_raw.strftime("%d/%m/%Y"),
+                    "TimeStr": date_raw.strftime("%H:%M"),
+                    "Home": str(h_team).strip(),
+                    "Away": str(a_team).strip(),
+                    "GOLS_HOME": h_score,
+                    "GOLS_AWAY": a_score
+                })
+        except Exception:
+            continue
             
-        df = pd.DataFrame(jogos_lista)
-        if not df.empty:
-            df["TOTALGOALS"] = df["GOLS_HOME"] + df["GOLS_AWAY"]
-        return df
-    except Exception:
-        return pd.DataFrame(columns=["DateObj", "DateStr", "TimeStr", "Home", "Away", "GOLS_HOME", "GOLS_AWAY", "TOTALGOALS"])
+    df = pd.DataFrame(todos_lista := todos_jogos)
+    if not df.empty:
+        df["TOTALGOALS"] = df["GOLS_HOME"] + df["GOLS_AWAY"]
+    return df
 
-df = carregar_dados_live(endpoint_liga)
+df_global = escaneamento_global_api()
 
-if df.empty:
-    st.error(f"Sem conexões ativas ou jogos disponíveis para {liga_selecionada} na API neste momento.")
+if df_global.empty:
+    st.error("Nenhuma resposta das APIs da ESPN. Verifique sua conexão de rede satelital.")
     st.stop()
 
-# Divisão estratégica de histórico vs prospecção futura
-df_hist = df[df["GOLS_HOME"].notna()].copy()
-df_future = df[df["GOLS_HOME"].isna()].copy()
+# Isola estritamente histórico para cálculo e futuros para exibição
+df_hist = df_global[df_global["GOLS_HOME"].notna()].copy()
+df_future = df_global[df_global["GOLS_HOME"].isna()].copy()
 
-# Tratamento Fairline adaptável
-liga_home = max(df_hist["GOLS_HOME"].mean(), 1.45) if not df_hist.empty else 1.55
-liga_away = max(df_hist["GOLS_AWAY"].mean(), 1.15) if not df_hist.empty else 1.20
+# Parâmetros de Fairline Base
+liga_home = max(df_hist["GOLS_HOME"].mean(), 1.48) if not df_hist.empty else 1.55
+liga_away = max(df_hist["GOLS_AWAY"].mean(), 1.12) if not df_hist.empty else 1.20
 
 # =========================================================
-# ENGINE MATEMÁTICA QUANTITATIVA
+# MATEMÁTICA E PROBABILIDADES MODELO
 # =========================================================
 def peso_temporal(data_jogo, data_ref, xi=0.0065):
-    dias = (data_ref - data_jogo).dt.days
-    return np.exp(-xi * dias)
+    return np.exp(-xi * (data_ref - data_jogo).dt.days)
 
-def forca_time(team, side, data_ref):
-    if df_hist.empty: return 1.0, 1.0
-    jogos = df_hist[df_hist["DateObj"] < data_ref].copy()
-    t = jogos[jogos["Home"] == team] if side == "home" else jogos[jogos["Away"] == team]
+def forca_time(team, side, data_ref, liga_filtrada):
+    df_contexto = df_hist[df_hist["Liga"] == liga_filtrada]
+    if df_contexto.empty: return 1.0, 1.0
     
+    jogos = df_contexto[df_contexto["DateObj"] < data_ref].copy()
+    t = jogos[jogos["Home"] == team] if side == "home" else jogos[jogos["Away"] == team]
     if len(t) == 0: return 1.0, 1.0
 
     t.loc[:, "peso"] = peso_temporal(t["DateObj"], data_ref)
-
     if side == "home":
         atk = np.average(t["GOLS_HOME"], weights=t["peso"])
         def_ = np.average(t["GOLS_AWAY"], weights=t["peso"])
@@ -180,7 +175,7 @@ def dixon_coles(lh, la, rho=-0.08, max_g=9):
     return m / m.sum()
 
 def detectar_melhor_valor(hw, d, aw, o15, o25, u35, xg, home, away):
-    if hw > 60.0: return f"🔥 Vitória do Mandante: {home}"
+    if hw > 61.0: return f"🔥 Vitória do Mandante: {home}"
     if aw > 44.0: return f"🚀 Vitória do Visitante: {away}"
     if o25 > 56.0 and xg > 2.75: return "⚽ Jogo de Gols: Mais de 2.5 Gols"
     if d > 32.0 and u35 > 76.0 and xg < 2.20: return "🔒 Contra o Empate / Jogo Truncado"
@@ -200,16 +195,15 @@ def obter_melhor_opcao_anytime(p, home, away):
     return melhor_label, opcoes[melhor_label]
 
 # =========================================================
-# CRUNCHING E PROCESSAMENTO DE MERCADO
+# CRUNCHING E INTERFACE POR DATA UNIFICADA
 # =========================================================
-st.subheader("📊 Scanner de Sinais Ativos")
-
-saida = []
 if not df_future.empty:
+    saida_global = []
     for _, r in df_future.iterrows():
-        data_ref, home, away, hora_jogo = r["DateObj"], r["Home"], r["Away"], r["TimeStr"]
-        ah, dh = forca_time(home, "home", data_ref)
-        aa, da = forca_time(away, "away", data_ref)
+        liga, data_ref, home, away, hora_jogo = r["Liga"], r["DateObj"], r["Home"], r["Away"], r["TimeStr"]
+        
+        ah, dh = forca_time(home, "home", data_ref, liga)
+        aa, da = forca_time(away, "away", data_ref, liga)
 
         xg_h = np.clip(((ah * da * liga_home) * 0.7 + liga_home * 0.3), 0.2, 3.5)
         xg_a = np.clip(((aa * da * liga_away) * 0.7 + liga_away * 0.3), 0.2, 3.2)
@@ -230,27 +224,44 @@ if not df_future.empty:
         sugestao_value = detectar_melhor_valor(home_win, draw, away_win, over15, over25, under35, xg_total, home, away)
         lbl_anytime, prob_anytime = obter_melhor_opcao_anytime(p, home, away)
 
-        saida.append({
-            "Date": r["DateStr"], "Hora": hora_jogo, "Home": home, "Away": away, 
+        saida_global.append({
+            "Liga": liga, "Date": r["DateStr"], "Hora": hora_jogo, "Home": home, "Away": away, 
             "Sugestao": sugestao_value, "anytime_label": lbl_anytime, "anytime_prob": prob_anytime, 
             "anytime_odd_justa": 100 / max(prob_anytime, 1.0), "Over15": over15, "Over25": over25, 
-            "Under35": under35, "HomeWin": home_win, "Draw": draw, "AwayWin": away_win, "xG": xg_total
+            "Under35": under35, "HomeWin": home_win, "Draw": draw, "AwayWin": away_win, "xG": xg_total,
+            "Timestamp": data_ref
         })
 
-    df_proj = pd.DataFrame(saida)
-    datas_disponiveis = sorted(df_proj["Date"].unique())
+    df_processado = pd.DataFrame(saida_global)
     
-    col_sel, _ = st.columns([1, 3])
+    # Organiza apenas datas futuras com base cronológica real
+    df_processado = df_processado.sort_values(by="Timestamp")
+    datas_com_jogos = df_processado["Date"].unique().tolist()
+    
+    # Renderização do Seletor Principal Unificado
+    st.markdown("### 📅 Central Unificada de Mercados")
+    col_sel, _ = st.columns([1, 2])
     with col_sel:
-        data_selecionada = st.selectbox("🎯 Filtrar Rodada por Data:", datas_disponiveis)
+        data_selecionada = st.selectbox("🎯 Escolha o Dia para Buscar Sinais:", datas_com_jogos)
+        
+    df_final_dia = df_processado[df_processado["Date"] == data_selecionada]
     
-    df_proj_filtrado = df_proj[df_proj["Date"] == data_selecionada]
+    # KPIs Rápidas do Dia Selecionado
+    st.markdown(f"""
+        <div class="kpi-wrapper" style="display: flex; gap: 1rem; margin-bottom: 1.5rem;">
+            <div class="metric-card"><div class="metric-title">Jogos Mapeados no Dia</div><div class="metric-value">{len(df_final_dia)}</div></div>
+            <div class="metric-card" style="border-left-color: #38BDF8;"><div class="metric-title">Ligas em Atividade Hoje</div><div class="metric-value">{df_final_dia['Liga'].nunique()}</div></div>
+        </div>
+    """, unsafe_allow_html=True)
 
-    # Renderização Estilo Trading Pro Premium Dark
-    for _, jogo in df_proj_filtrado.iterrows():
+    # Renderização dos Bloco de Jogos Trading Pro
+    for _, jogo in df_final_dia.iterrows():
         st.markdown(f"""
-        <div class="match-box" style="margin-bottom: 0px; border-bottom-left-radius: 0px; border-bottom-right-radius: 0px;">
-            <div class="match-header"><span>📅 DATA: {jogo['Date']} - {jogo['Hora']}</span> <span>PROJEÇÃO QUANTITATIVA DIXON-COLES</span></div>
+        <div class="match-box" style="margin-bottom: 0px; border-bottom-left-radius: 0px; border-bottom-right-radius: 0px; margin-top:10px;">
+            <div class="match-header">
+                <span>📅 {jogo['Date']} - {jogo['Hora']}</span> 
+                <span class="league-badge">{jogo['Liga']}</span>
+            </div>
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap:15px;">
                 <div style="flex: 1; min-width: 280px;">
                     <span class="team-name">{jogo['Home']}</span>
@@ -282,37 +293,21 @@ if not df_future.empty:
 
     # Monitor de Tendência Gráfico
     st.markdown("<br>", unsafe_allow_html=True)
-    st.subheader("📊 Histograma de Linhas de Gols Ativas (Soma de xG)")
+    st.subheader("📊 Volatilidade de Gols da Rodada Selecionada")
     
     fig, ax = plt.subplots(figsize=(12, 3.8), facecolor='#060913')
     ax.set_facecolor('#0F172A')
-    confrontos = df_proj_filtrado["Home"] + " vs " + df_proj_filtrado["Away"]
-    bars = ax.bar(confrontos, df_proj_filtrado["xG"], color='#38BDF8', edgecolor='#0284C7', alpha=0.85, width=0.3)
+    confrontos = df_final_dia["Home"] + " vs " + df_final_dia["Away"]
+    bars = ax.bar(confrontos, df_final_dia["xG"], color='#38BDF8', edgecolor='#0284C7', alpha=0.85, width=0.3)
     
-    ax.axhline(liga_home + liga_away, color='#F43F5E', linestyle='--', linewidth=1.5, label='Fairline Estimada')
+    ax.axhline(2.5, color='#F43F5E', linestyle='--', linewidth=1.5, label='Linha Padrão Over 2.5')
     ax.set_ylabel("Expected Goals Total", fontsize=10, color='#94A3B8')
     ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False)
     ax.spines['left'].set_color('#1E293B'); ax.spines['bottom'].set_color('#1E293B')
     ax.tick_params(axis='both', colors='#94A3B8', labelsize=9)
-    plt.xticks(rotation=10, ha='right')
+    plt.xticks(rotation=12, ha='right')
     plt.legend(frameon=True, facecolor='#0F172A', edgecolor='#1E293B', labelcolor='white')
     plt.tight_layout()
     st.pyplot(fig)
-
 else:
-    st.info("Nenhum confronto futuro pendente de encerramento foi mapeado para esta liga nas próximas 48 horas.")
-
-# =========================================================
-# CENTRAL DE LIQUIDEZ HISTÓRICA DA LIGA
-# =========================================================
-st.markdown("---")
-with st.expander("🗂️ Central de Liquidez e Estatísticas Gerais da Liga"):
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown(f'<div class="metric-card"><div class="metric-title">Amostragem Coletada</div><div class="metric-value">{len(df_hist)} Jogos</div></div>', unsafe_allow_html=True)
-    with col2:
-        media_g_hist = df_hist["TOTALGOALS"].mean() if not df_hist.empty else (liga_home + liga_away)
-        st.markdown(f'<div class="metric-card"><div class="metric-title">Média de Gols (Histórico)</div><div class="metric-value">{media_g_hist:.2f}</div></div>', unsafe_allow_html=True)
-    with col3:
-        pct_over = (df_hist["TOTALGOALS"] > 2.5).mean() * 100 if not df_hist.empty else 52.5
-        st.markdown(f'<div class="metric-card"><div class="metric-title">Liquidez de Over 2.5 FT</div><div class="metric-value">{pct_over:.1f}%</div></div>', unsafe_allow_html=True)
+    st.info("Nenhum confronto futuro sem resultado foi retornado no pooling das APIs nas próximas 72 horas.")
