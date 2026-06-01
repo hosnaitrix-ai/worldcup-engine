@@ -6,7 +6,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import poisson
 
-# Evita problemas de concorrência com loops assíncronos no Windows
 if sys.platform == 'win32':
     import asyncio
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -20,35 +19,28 @@ st.set_page_config(
     layout="wide"
 )
 
-# CSS Customizado: Interface de Alta Performance (Estilo Betfairs / PunterPlace)
 st.markdown("""
     <style>
     .block-container { padding-top: 1.5rem; padding-bottom: 1.5rem; }
     h1 { font-weight: 900 !important; color: #0F172A; letter-spacing: -1px; }
     h3 { font-weight: 700 !important; color: #1E293B; margin-bottom: 0.5rem; }
     
-    /* Grid de Métricas da Liga */
     .metric-card { background-color: #0F172A; padding: 1.2rem; border-radius: 8px; border-left: 4px solid #10B981; color: white; }
     .metric-title { font-size: 11px; text-transform: uppercase; color: #94A3B8; letter-spacing: 1px; font-weight: bold; }
     .metric-value { font-size: 1.8rem; font-weight: 800; color: #10B981; margin-top: 2px; }
     
-    /* Layout dos Cards de Jogos (Trading) */
     .match-box { background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
     .match-header { font-size: 12px; color: #64748B; font-weight: 600; text-transform: uppercase; margin-bottom: 0.8rem; border-bottom: 1px solid #F1F5F9; padding-bottom: 4px; display: flex; justify-content: space-between; }
     .league-badge { background: #F1F5F9; color: #4338CA; padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 11px; }
     .team-name { font-size: 1.25rem; font-weight: 700; color: #1E293B; }
     .vs-badge { font-size: 10px; background: #F1F5F9; color: #64748B; padding: 2px 8px; border-radius: 4px; margin: 0 10px; font-weight: bold; }
     
-    /* Odds e Mercados */
     .market-title { font-size: 11px; font-weight: bold; color: #475569; text-transform: uppercase; text-align: center; margin-bottom: 4px; }
     .odd-box-back { background: #E0F2FE; border: 1px solid #7DD3FC; color: #0369A1; text-align: center; padding: 8px; border-radius: 6px; font-weight: 800; font-size: 15px; }
     .odd-box-lay { background: #FCE7F3; border: 1px solid #FBCFE8; color: #B91C1C; text-align: center; padding: 8px; border-radius: 6px; font-weight: 800; font-size: 15px; }
     .odd-box-goals { background: #F0FDF4; border: 1px solid #BBF7D0; color: #166534; text-align: center; padding: 8px; border-radius: 6px; font-weight: 800; font-size: 15px; }
     
-    /* Badge de Sugestão de Entrada */
     .value-badge { background: #4338CA; color: white; padding: 6px 12px; border-radius: 6px; font-weight: 700; font-size: 13px; display: inline-block; }
-
-    /* DESIGN DO BLOCO DE RELATÓRIO ANYTIME INTEGRADO */
     .value-report-box { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px; }
     .report-topic { font-size: 12px; font-weight: 700; color: #4338CA; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
     .report-text { font-size: 12.5px; color: #334155; line-height: 1.5; margin-bottom: 4px; }
@@ -56,34 +48,33 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Top Bar do Terminal
 st.markdown('<p style="color:#6366F1; font-weight:bold; text-transform:uppercase; font-size:12px; margin-bottom:0;">⚡ LiveScanner & Probability Engine</p>', unsafe_allow_html=True)
 st.title("📊 TRADING PRO: Engine de Pesos por Liga Online")
 st.markdown("---")
 
 # =========================================================
-# DICIONÁRIO DE CONFIGURAÇÃO DE LIGAS E SEUS FALLBACKS DE PESO
+# DICIONÁRIO DE CONFIGURAÇÃO DE LIGAS 
 # =========================================================
 LIGAS_MAPA = {
-    "Alemanha - Bundesliga": {"slug": "ger.1", "base_home": 1.75, "base_away": 1.38},
-    "UEFA Champions League": {"slug": "uefa.champions", "base_home": 1.60, "base_away": 1.25},
-    "Copa Libertadores": {"slug": "conmebol.libertadores", "base_home": 1.45, "base_away": 1.05},
-    "Holanda - Eredivisie": {"slug": "ned.1", "base_home": 1.78, "base_away": 1.40},
+    "Brasileirão - Série A": {"slug": "bra.1", "base_home": 1.45, "base_away": 1.05},
     "Suécia - Allsvenskan": {"slug": "swe.1", "base_home": 1.65, "base_away": 1.28},
-    "Brasileirão - Série A": {"slug": "bra.1", "base_home": 1.42, "base_away": 1.02}
+    "Alemanha - Bundesliga": {"slug": "ger.1", "base_home": 1.75, "base_away": 1.38},
+    "Holanda - Eredivisie": {"slug": "ned.1", "base_home": 1.78, "base_away": 1.40},
+    "UEFA Champions League": {"slug": "uefa.champions", "base_home": 1.60, "base_away": 1.25}
 }
 
 # =========================================================
-# MOTOR DE CAPTURA ONLINE (REAL-TIME API ESPN)
+# MOTOR DE CAPTURA ONLINE AVANÇADO (FILTRO DE DATAS AMPLO)
 # =========================================================
 @st.cache_data(ttl=600)
 def carregar_dados_online():
     todos_jogos = []
     
     for nome_liga, config in LIGAS_MAPA.items():
-        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard"
+        # Adicionado o parâmetro ?dates=20260101-20260630 para forçar a API a entregar o calendário completo do semestre
+        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates=20260101-20260630&limit=300"
         try:
-            response = requests.get(url, timeout=5)
+            response = requests.get(url, timeout=8)
             if response.status_code != 200: continue
             data = response.json()
             
@@ -101,8 +92,8 @@ def carregar_dados_online():
                 h_score = np.nan
                 a_score = np.nan
                 
-                # Se o jogo já acabou ou está acontecendo, pega o placar para alimentar o histórico dinâmico
-                if status_type in ["STATUS_FULL_TIME", "STATUS_FINAL", "STATUS_IN_PROGRESS"]:
+                # Mapeia se o jogo já aconteceu para registrar no bando de dados de cálculo
+                if status_type in ["STATUS_FULL_TIME", "STATUS_FINAL"]:
                     h_score = int(home_node['score']) if home_node['homeAway'] == 'home' else int(away_node['score'])
                     a_score = int(away_node['score']) if away_node['homeAway'] == 'away' else int(home_node['score'])
 
@@ -123,6 +114,8 @@ def carregar_dados_online():
     df = pd.DataFrame(todos_jogos)
     if not df.empty:
         df["TOTALGOALS"] = df["GOLS_HOME"] + df["GOLS_AWAY"]
+        # Remove duplicados por ventura vindos da API
+        df = df.drop_duplicates(subset=["DateStr", "Home", "Away"])
     return df
 
 df = carregar_dados_online()
@@ -131,12 +124,11 @@ if df.empty:
     st.error("Nenhum dado pôde ser coletado das APIs online neste momento.")
     st.stop()
 
-# Divisão de histórico vs jogos futuros online
 df_hist = df[df["GOLS_HOME"].notna()].copy()
 df_future = df[df["GOLS_HOME"].isna()].copy()
 
 # =========================================================
-# FUNÇÕES MATEMÁTICAS E PREDITIVAS COPIADAS DA SUA BASE
+# FUNÇÕES MATEMÁTICAS E PREDITIVAS
 # =========================================================
 def peso_temporal(data_jogo, data_ref, xi=0.0065):
     dias = (data_ref - data_jogo).dt.days
@@ -146,7 +138,6 @@ def forca_time(team, side, data_ref, liga_jogo, l_home_mean, l_away_mean):
     if df_hist.empty:
         return 1.0, 1.0
         
-    # Isola o histórico apenas daquela liga para não cruzar dados errados
     jogos = df_hist[(df_hist["Date"] < data_ref) & (df_hist["League"] == liga_jogo)].copy()
     t = jogos[jogos["Home"] == team] if side == "home" else jogos[jogos["Away"] == team]
     
@@ -219,7 +210,6 @@ if not df_future.empty:
         away = r["Away"]
         liga_corrente = r["League"]
 
-        # Busca médias históricas da API para esta liga ou usa o fallback do mapa fixado
         df_hist_liga = df_hist[df_hist["League"] == liga_corrente]
         
         if not df_hist_liga.empty and len(df_hist_liga) >= 3:
@@ -229,15 +219,12 @@ if not df_future.empty:
             liga_home_mean = LIGAS_MAPA.get(liga_corrente, {}).get("base_home", 1.50)
             liga_away_mean = LIGAS_MAPA.get(liga_corrente, {}).get("base_away", 1.15)
 
-        # Calcula forças usando o contexto isolado da liga
         ah, dh = forca_time(home, "home", data_ref, liga_corrente, liga_home_mean, liga_away_mean)
         aa, da = forca_time(away, "away", data_ref, liga_corrente, liga_home_mean, liga_away_mean)
 
-        # Regressão e clipping matemático idênticos à sua base
         xg_h = (ah * da * liga_home_mean) * 0.65 + liga_home_mean * 0.35
         xg_a = (aa * dh * liga_away_mean) * 0.65 + liga_away_mean * 0.35
         
-        # Leve quebra se houver duplicidade seca por falta de amostragem na API
         if ah == 1.0 and aa == 1.0:
             xg_h += 0.04
             xg_a -= 0.04
@@ -286,6 +273,8 @@ if not df_future.empty:
         })
 
     df_proj = pd.DataFrame(saida)
+    
+    # Ordenação lógica das datas futuras encontradas no calendário amplo
     datas_disponiveis = sorted(df_proj["Date"].unique(), key=lambda x: pd.to_datetime(x, format="%d/%m/%Y"))
     
     col_sel, _ = st.columns([1, 3])
@@ -294,7 +283,6 @@ if not df_future.empty:
     
     df_proj_filtrado = df_proj[df_proj["Date"] == data_selecionada]
 
-    # Renderização visual idêntica à solicitada
     for _, jogo in df_proj_filtrado.iterrows():
         st.markdown(f"""
         <div class="match-box" style="margin-bottom: 0px; border-bottom-left-radius: 0px; border-bottom-right-radius: 0px;">
@@ -332,7 +320,6 @@ if not df_future.empty:
         </div>
         """, unsafe_allow_html=True)
 
-    # Gráfico Estilizado do Monitor de Tendências preservado
     st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("📊 Histograma de Linhas de Gols Ativas (Soma de xG)")
     
@@ -376,7 +363,7 @@ else:
     st.info("Nenhum confronto futuro sem resultado foi retornado pela API neste momento.")
 
 # =========================================================
-# CENTRAL DE LIQUIDEZ COM HISTÓRICO REAL DA API ONLINE
+# CENTRAL DE LIQUIDEZ COM HISTÓRICO REAL AMPLO
 # =========================================================
 st.markdown("---")
 with st.expander("🗂️ Central de Liquidez e Estatísticas Gerais Online"):
@@ -398,4 +385,4 @@ with st.expander("🗂️ Central de Liquidez e Estatísticas Gerais Online"):
 
     st.markdown("<br>", unsafe_allow_html=True)
     if not df_hist_view.empty:
-        st.dataframe(df_hist_view[["DateStr", "Time", "Home", "Score", "Away", "TOTALGOALS", "League"]], use_container_width=True)
+        st.dataframe(df_hist_view[["DateStr", "Time", "Home", "Score", "Away", "TOTALGOALS", "League"]].sort_values(by="DateStr", ascending=False), use_container_width=True)
