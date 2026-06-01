@@ -6,15 +6,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import poisson
 
-# Correção preventiva para o loop de eventos assíncronos
+# Correção preventiva para o loop de eventos assíncronos no Windows
 if sys.platform == 'win32':
     import asyncio
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-# Configuration
+# Configuração da Página para Mobile e Desktop
 st.set_page_config(page_title="World Cup Quantum Engine", page_icon="⚡", layout="wide")
 
-# CSS Institucional Dark
+# CSS Institucional Dark Avançado
 st.markdown("""
     <style>
     [data-testid="stAppViewContainer"] { background-color: #060913; color: #F0F4F8; }
@@ -50,7 +50,6 @@ st.markdown('<h1 class="main-title">⚽ World Cup Live Scanner</h1>', unsafe_all
 # =========================================================
 @st.cache_data(ttl=1800) # Atualiza a API automaticamente a cada 30 minutos
 def carregar_dados_espn():
-    # URL estável para competições FIFA (International)
     url = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard"
     try:
         response = requests.get(url, timeout=10)
@@ -65,7 +64,7 @@ def carregar_dados_espn():
             home_node = comp['competitors'][0]
             away_node = comp['competitors'][1]
             
-            # Garante ordem correta Casa x Fora baseado no payload da ESPN
+            # Ajusta dinamicamente a ordem baseado no payload da ESPN
             h_team = home_node['team']['displayName'] if home_node['homeAway'] == 'home' else away_node['team']['displayName']
             a_team = away_node['team']['displayName'] if away_node['homeAway'] == 'away' else home_node['team']['displayName']
             
@@ -89,13 +88,12 @@ def carregar_dados_espn():
             df["TOTALGOALS"] = df["GOLS_HOME"] + df["GOLS_AWAY"]
         return df
     except Exception as e:
-        # Fallback de segurança se a API estiver fora do ar no momento
         return pd.DataFrame(columns=["Date", "Home", "Away", "GOLS_HOME", "GOLS_AWAY", "TOTALGOALS"])
 
 df_raw = carregar_dados_espn()
 
 if df_raw.empty:
-    st.error("Não foi possível coletar dados da API da ESPN neste momento. Verifique a conexão do servidor.")
+    st.error("Não foi possível coletar dados da API da ESPN neste momento. O servidor pode estar indisponível.")
     st.stop()
 
 df_hist = df_raw[df_raw["GOLS_HOME"].notna()].copy()
@@ -145,15 +143,26 @@ def detectar_melhor_valor(hw, d, aw, o15, o25, u35, btts, xg, home, away):
     if o15 > 78.0 and o25 <= 55.0: return "🛡️ SEGURANÇA: Mais de 1.5 Gols"
     return "⚖️ SEM ENTRADA DE VALOR"
 
-# Renderização do Dashboard Principal
+# =========================================================
+# RENDERIZAÇÃO DO DASHBOARD PRINCIPAL
+# =========================================================
+# Cálculo isolado prévio para evitar conflito de chaves nas f-strings
+media_gols_val = df_hist['TOTALGOALS'].mean() if not df_hist.empty else 2.75
+
 st.markdown(f"""
     <div class="kpi-wrapper">
-        <div class="kpi-card-premium" style="border-left-color: #38BDF8;"><div class="kpi-title-premium">Partidas Analisadas</div><div class="kpi-value-premium">{len(df_raw)}</div></div>
-        <div class="kpi-card-premium" style="border-left-color: #34D399;"><div class="kpi-title-premium">Média Gols (Base Real)</div><div class="kpi-value-premium">{df_hist['TOTALGOALS'].mean():.2f if not df_hist.empty else '2.75'}</div></div>
+        <div class="kpi-card-premium" style="border-left-color: #38BDF8;">
+            <div class="kpi-title-premium">Partidas Analisadas</div>
+            <div class="kpi-value-premium">{len(df_raw)}</div>
+        </div>
+        <div class="kpi-card-premium" style="border-left-color: #34D399;">
+            <div class="kpi-title-premium">Média Gols (Base Real)</div>
+            <div class="kpi-value-premium">{media_gols_val:.2f}</div>
+        </div>
     </div>
 """, unsafe_allow_html=True)
 
-# Processamento e amostragem dos sinais preditivos
+# Processamento e mapeamento dos sinais preditivos
 saida = []
 for _, r in df_raw.iterrows():
     home, away, data_ref = r["Home"], r["Away"], r["Date"]
@@ -180,7 +189,7 @@ for _, r in df_raw.iterrows():
         "O15": o15, "O25": o25, "U35": u35, "BTTS": btts, "xG": xg_t
     })
 
-# Render dos Cards Dinâmicos na Tela do Celular
+# Renderização do Layout Mobile-Friendly
 st.markdown("### 🔮 Scanner de Sinais da Rodada")
 for j in saida:
     st.markdown(f"""
