@@ -92,10 +92,8 @@ def carregar_dados_online():
             for event in data.get('events', []):
                 status_type = event['status']['type']['name']
                 
-                # Conversão de fuso horário segura usando Localize/Convert nativos do Pandas
                 date_utc = pd.to_datetime(event['date']).tz_convert('UTC')
                 
-                # Evita que horários coringas (00:00 ou 04:00) mudem para o dia anterior ao subtrair horas
                 if date_utc.hour in [0, 4] and date_utc.minute == 0:
                     date_raw = date_utc.replace(tzinfo=None)
                     time_str = "A definir"
@@ -137,16 +135,9 @@ def carregar_dados_online():
     if not df.empty:
         df["TOTALGOALS"] = df["GOLS_HOME"] + df["GOLS_AWAY"]
         
-        # Cria pesos temporários para organizar as duplicatas
-        df["Is_Postponed"] = df["Status"] == "STATUS_POSTPONED"
-        df["Is_Unconfirmed"] = df["Time"] == "A definir"
-        
-        # Ordena colocando jogos confirmados e cronologicamente mais próximos (ex: dia 05) no topo
-        df = df.sort_values(by=["Is_Postponed", "Is_Unconfirmed", "Date"], ascending=[True, True, True])
-        
-        # Elimina duplicatas de forma estrita considerando apenas o confronto único por campeonato
-        df = df.drop_duplicates(subset=["League", "Home", "Away"], keep='first')
-        df = df.drop(columns=["Is_Postponed", "Is_Unconfirmed"])
+        # CORREÇÃO CRUCIAL: Remove duplicatas considerando a data exata do confronto,
+        # impedindo que jogos válidos de turnos diferentes no mesmo ano sejam excluídos.
+        df = df.drop_duplicates(subset=["League", "DateStr", "Home", "Away"], keep='first')
         
     return df
 
@@ -156,7 +147,6 @@ if df.empty:
     st.error("Nenhum dado pôde ser coletado das APIs online neste momento.")
     st.stop()
 
-# Ajuste temporal local usando a data de hoje normalizada para o fuso brasileiro corrigido
 hoje = pd.Timestamp.now().floor('D')
 
 df_hist = df[df["GOLS_HOME"].notna()].copy()
@@ -307,6 +297,7 @@ if not df_future.empty:
             "Expected Goals": round(xg_total, 2)
         })
 
+if saida:
     df_proj = pd.DataFrame(saida)
     df_proj_futuro_real = df_proj[df_proj["RawDate"] >= hoje].copy()
     
@@ -319,6 +310,7 @@ if not df_future.empty:
         
         df_proj_filtrado = df_proj_futuro_real[df_proj_futuro_real["Date"] == data_selecionada]
 
+        # Renderização dos cartões preditivos
         for _, jogo in df_proj_filtrado.iterrows():
             st.markdown(f"""
             <div class="match-box" style="margin-bottom: 0px; border-bottom-left-radius: 0px; border-bottom-right-radius: 0px;">
@@ -365,15 +357,10 @@ if not df_future.empty:
         confrontos = df_proj_filtrado["Home"] + " vs " + df_proj_filtrado["Away"]
         bars = ax.bar(confrontos, df_proj_filtrado["Expected Goals"], color='#06B6D4', edgecolor='#0891B2', alpha=0.85, width=0.35)
         
-        liga_selecionada = df_proj_filtrado["League"].iloc[0]
-        df_hist_filtrada = df_hist[df_hist["League"] == liga_selecionada]
-        
-        if not df_hist_filtrada.empty:
-            media_liga = df_hist_filtrada["TOTALGOALS"].mean()
-        else:
-            media_liga = LIGAS_MAPA.get(liga_selecionada, {}).get("base_home", 1.5) + LIGAS_MAPA.get(liga_selecionada, {}).get("base_away", 1.1)
+        # Média calculada dinamicamente com base em todos os confrontos exibidos na tela
+        media_liga = df_proj_filtrado["Expected Goals"].mean() if not df_proj_filtrado.empty else 2.5
             
-        ax.axhline(media_liga, color='#F43F5E', linestyle='--', linewidth=1.5, label=f'Fairline da Liga ({liga_selecionada}): {media_liga:.2f}')
+        ax.axhline(media_liga, color='#F43F5E', linestyle='--', linewidth=1.5, label=f'Média de xG Projetada para o Dia: {media_liga:.2f}')
         
         ax.set_ylabel("Expected Goals Total", fontsize=10, fontweight='bold', color='#94A3B8')
         ax.spines['top'].set_visible(False)
@@ -400,32 +387,17 @@ else:
     st.info("Nenhum confronto futuro sem resultado foi retornado pela API neste momento.")
 
 # =========================================================
-# CENTRAL DE LIQUIDEZ E BANCO HISTÓRICO ONLINE (CORRIGIDO)
+# CENTRAL DE LIQUIDEZ E BANCO HISTÓRICO ONLINE (SÓ MÉTRICAS)
 # =========================================================
 st.markdown("---")
 with st.expander("🗂️ Central de Liquidez e Banco de Dados Histórico Online"):
-    
-    # Filtro dinâmico para escolher a liga no histórico (Evita travar em uma liga só)
-    if not df_hist.empty:
-        ligas_disponiveis_hist = ["Todas as Ligas"] + list(sorted(df_hist["League"].unique()))
-        liga_hist_selecionada = st.selectbox("🔍 Filtrar Banco de Dados por Liga:", ligas_disponiveis_hist, key="sb_hist_liga")
-        
-        if liga_hist_selecionada != "Todas as Ligas":
-            df_hist_view = df_hist[df_hist["League"] == liga_hist_selecionada]
-        else:
-            df_hist_view = df_hist
-    else:
-        df_hist_view = df_hist
-
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.markdown(f'<div class="metric-card"><div class="metric-title">Amostragem Base (API)</div><div class="metric-value">{len(df_hist_view)} Jogos</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card"><div class="metric-title">Amostragem Base Histórica</div><div class="metric-value">{len(df_hist)} Jogos</div></div>', unsafe_allow_html=True)
     with col2:
-        media_g_hist = df_hist_view["TOTALGOALS"].mean() if not df_hist_view.empty else 0.0
-        st.markdown(f'<div class="metric-card"><div class="metric-title">Média de Gols Dinâmica</div><div class="metric-value">{media_g_hist:.2f}</div></div>', unsafe_allow_html=True)
+        media_g_hist = df_hist["TOTALGOALS"].mean() if not df_hist.empty else 0.0
+        st.markdown(f'<div class="metric-card"><div class="metric-title">Média de Gols Global</div><div class="metric-value">{media_g_hist:.2f}</div></div>', unsafe_allow_html=True)
     with col3:
-        pct_over = (df_hist_view["TOTALGOALS"] > 2.5).mean() * 100 if not df_hist_view.empty else 0.0
-        st.markdown(f'<div class="metric-card"><div class="metric-title">Liquidez Over 2.5 (Filtro Atual)</div><div class="metric-value">{pct_over:.1f}%</div></div>', unsafe_allow_html=True)
-
+        pct_over = (df_hist["TOTALGOALS"] > 2.5).mean() * 100 if not df_hist.empty else 0.0
+        st.markdown(f'<div class="metric-card"><div class="metric-title">Liquidez Global Over 2.5</div><div class="metric-value">{pct_over:.1f}%</div></div>', unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
-    # OBS: A tabela de dados (st.dataframe) foi removida deste bloco conforme solicitado.
