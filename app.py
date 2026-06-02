@@ -63,7 +63,7 @@ LIGAS_MAPA = {
     "Chile - Primera División": {"slug": "chi.1", "base_home": 1.50, "base_away": 1.12},
     "Suécia - Allsvenskan": {"slug": "swe.1", "base_home": 1.65, "base_away": 1.28},
     "Suécia - Superettan": {"slug": "swe.2", "base_home": 1.55, "base_away": 1.20},
-    "Suécia - Damallsvenskan": {"slug": "swe.w.1", "base_home": 1.70, "base_away": 1.35},
+    "Suécia - Damallsvenskan": {"slug": "swe.1w", "base_home": 1.70, "base_away": 1.35},
     "Finlândia - Veikkausliiga": {"slug": "fin.1", "base_home": 1.48, "base_away": 1.18},
     "Alemanha - Bundesliga": {"slug": "ger.1", "base_home": 1.75, "base_away": 1.38},
     "Holanda - Eredivisie": {"slug": "ned.1", "base_home": 1.78, "base_away": 1.40},
