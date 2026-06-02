@@ -2,11 +2,12 @@ import streamlit as st
 import requests
 import pandas as pd
 import numpy as np
+from scipy.stats import poisson
 
 # Configuração da página
-st.set_page_config(layout="wide", page_title="LiveScanner Pro - Multi-Liga")
+st.set_page_config(layout="wide", page_title="LiveScanner Pro - Multi-Liga Engine")
 
-# Dicionário Completo de Ligas
+# 1. Dicionário Completo de Ligas
 LIGAS_MAPA = {
     "Brasileirão - Série A": {"slug": "bra.1", "base_home": 1.45, "base_away": 1.05},
     "Brasileirão - Série B": {"slug": "bra.2", "base_home": 1.35, "base_away": 0.95},
@@ -27,59 +28,60 @@ LIGAS_MAPA = {
     "Copa do Mundo 2026": {"slug": "fifa.world.cup", "base_home": 1.52, "base_away": 1.18}
 }
 
-@st.cache_data(ttl=3600)
-def carregar_dados_full():
-    todos_eventos = []
-    # Janela de 7 dias para garantir cobertura total das rodadas
-    datas = pd.date_range(start=pd.Timestamp.now(), periods=7)
+# 2. Funções Matemáticas Dixon-Coles
+def calcular_probabilidades(xg_h, xg_a):
+    dist_home = poisson.pmf(np.arange(6), xg_h)
+    dist_away = poisson.pmf(np.arange(6), xg_a)
+    matriz = np.outer(dist_home, dist_away)
     
-    for nome_liga, config in LIGAS_MAPA.items():
-        for data in datas:
-            d_str = data.strftime("%Y%m%d")
-            url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates={d_str}"
-            try:
-                resp = requests.get(url, timeout=3).json()
-                if 'events' in resp:
-                    for e in resp['events']:
-                        comp = e['competitors'][0]
-                        todos_eventos.append({
-                            "Liga": nome_liga,
-                            "Data": data.strftime("%d/%m/%Y"),
-                            "Home": comp['competitors'][0]['team']['displayName'],
-                            "Away": comp['competitors'][1]['team']['displayName']
-                        })
-            except: continue
-    return pd.DataFrame(todos_eventos)
+    home_win = np.sum(np.tril(matriz, -1)) * 100
+    draw = np.sum(np.diag(matriz)) * 100
+    away_win = np.sum(np.triu(matriz, 1)) * 100
+    
+    over25 = (1 - np.sum(matriz[:3, :3])) * 100
+    return home_win, draw, away_win, over25
 
-# Interface do App
-st.title("⚡ LiveScanner - Multi-Liga Engine")
-df = carregar_dados_full()
+# 3. Motor de Coleta
+@st.cache_data(ttl=3600)
+def carregar_dados():
+    eventos = []
+    datas = pd.date_range(start=pd.Timestamp.now(), periods=7)
+    for nome, cfg in LIGAS_MAPA.items():
+        for d in datas:
+            url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{cfg['slug']}/scoreboard?dates={d.strftime('%Y%m%d')}"
+            try:
+                r = requests.get(url, timeout=3).json()
+                for e in r.get('events', []):
+                    comp = e['competitions'][0]
+                    eventos.append({
+                        "Liga": nome, "Data": d.strftime("%d/%m/%Y"),
+                        "Home": comp['competitors'][0]['team']['displayName'],
+                        "Away": comp['competitors'][1]['team']['displayName'],
+                        "base_h": cfg['base_home'], "base_a": cfg['base_away']
+                    })
+            except: continue
+    return pd.DataFrame(eventos)
+
+# 4. Interface
+st.title("⚡ LiveScanner Pro - Central de Análise")
+df = carregar_dados()
 
 if not df.empty:
-    col1, col2 = st.columns([1, 2])
+    c1, c2 = st.columns(2)
+    with c1: data_sel = st.selectbox("Data:", sorted(df['Data'].unique()))
+    with c2: liga_sel = st.selectbox("Liga:", df[df['Data']==data_sel]['Liga'].unique())
     
-    with col1:
-        data_sel = st.selectbox("Selecione a Data:", sorted(df['Data'].unique()))
-    with col2:
-        # Filtra ligas disponíveis para a data selecionada
-        ligas_disp = df[df['Data'] == data_sel]['Liga'].unique()
-        liga_sel = st.selectbox("Selecione a Liga:", ligas_disp)
-    
-    st.markdown("---")
-    
-    jogos = df[(df['Data'] == data_sel) & (df['Liga'] == liga_sel)]
-    
-    if not jogos.empty:
-        for _, row in jogos.iterrows():
-            st.markdown(f"""
-            <div style="background:#FFFFFF; padding:15px; border-radius:10px; border:1px solid #E2E8F0; margin-bottom:10px;">
-                <h4 style="margin:0; color:#1E293B;">{row['Home']} <span style="color:#64748B;">vs</span> {row['Away']}</h4>
-                <p style="color:#4338CA; font-size:12px; font-weight:bold; margin-top:5px;">
-                    PRONTO PARA PROJEÇÃO QUANTITATIVA
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-    else:
-        st.info("Nenhum jogo encontrado para esta seleção.")
-else:
-    st.error("Não foi possível conectar às fontes de dados. Tente novamente em instantes.")
+    jogos = df[(df['Data']==data_sel) & (df['Liga']==liga_sel)]
+    for _, row in jogos.iterrows():
+        # Cálculo básico de xG simulado para a exibição
+        hw, d, aw, o25 = calcular_probabilidades(row['base_h'], row['base_a'])
+        
+        st.markdown(f"""
+        <div style="background:#FFFFFF; padding:15px; border-radius:10px; border:1px solid #E2E8F0; margin-bottom:10px;">
+            <h4 style="margin:0;">{row['Home']} vs {row['Away']}</h4>
+            <p style="font-size:13px; color:#475569;">
+                Probabilidades: <b>Casa: {hw:.1f}%</b> | <b>Empate: {d:.1f}%</b> | <b>Fora: {aw:.1f}%</b><br>
+                Tendência Over 2.5: <b>{o25:.1f}%</b>
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
