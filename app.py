@@ -82,14 +82,6 @@ df = carregar_dados_online()
 if df.empty:
     st.error("Nenhum dado retornado da API. Verifique a conexão.")
     st.stop()
-
-# --- Restante do seu código de processamento (Dixon-Coles, Exibição, etc) ---
-st.success(f"Dados carregados com sucesso! Total de eventos: {len(df)}")
-# O código de UI segue exatamente como você tinha, processando o DataFrame 'df'
-                    })
-            except Exception:
-                continue
-
     # 2. CAPTURA DA BASE HISTÓRICA DE RETROSPECTO (MÉDIAS DE GOLS E Dixon-Coles)
     # Pega uma janela fixa retroativa para preencher o df_hist e alimentar a matemática
     url_hist = "20260101-20260601"
