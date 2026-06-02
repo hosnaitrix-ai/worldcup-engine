@@ -11,7 +11,7 @@ if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 # =========================================================
-# CONFIGURAÇÃO
+# CONFIGURAÇÃO DA PÁGINA
 # =========================================================
 st.set_page_config(
     page_title="LiveScanner Pro - Multi-Liga Online",
@@ -19,29 +19,36 @@ st.set_page_config(
     layout="wide"
 )
 
-st.markdown("""<style>
-.block-container { padding-top: 1.5rem; padding-bottom: 1.5rem; }
-h1 { font-weight: 900 !important; color: #0F172A; }
-.metric-card { background-color: #0F172A; padding: 1.2rem; border-radius: 8px; color: white; }
-.match-box { background: #fff; border: 1px solid #E2E8F0; border-radius: 12px; padding: 1.2rem; }
-.value-badge { background: #4338CA; color: white; padding: 6px 10px; border-radius: 6px; }
-</style>""", unsafe_allow_html=True)
+st.markdown("""
+    <style>
+    .block-container { padding-top: 1.5rem; padding-bottom: 1.5rem; }
+    h1 { font-weight: 900 !important; color: #0F172A; letter-spacing: -1px; }
+    h3 { font-weight: 700 !important; color: #1E293B; margin-bottom: 0.5rem; }
+    
+    .metric-card { background-color: #0F172A; padding: 1.2rem; border-radius: 8px; border-left: 4px solid #10B981; color: white; }
+    .metric-title { font-size: 11px; text-transform: uppercase; color: #94A3B8; letter-spacing: 1px; font-weight: bold; }
+    .metric-value { font-size: 1.8rem; font-weight: 800; color: #10B981; margin-top: 2px; }
+    
+    .match-box { background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 1.5rem; }
+    .league-badge { background: #F1F5F9; color: #4338CA; padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 11px; }
+    .team-name { font-size: 1.25rem; font-weight: 700; color: #1E293B; }
+    .vs-badge { font-size: 10px; background: #F1F5F9; color: #64748B; padding: 2px 8px; border-radius: 4px; margin: 0 10px; font-weight: bold; }
+    </style>
+""", unsafe_allow_html=True)
 
-st.title("📊 LIVE SCANNER PRO | ESPN TRADING ENGINE")
+st.title("📊 ANÁLISE DE FUTEBOL - By Freed Cesar")
+st.markdown("---")
 
 # =========================================================
-# LIGAS (BASE OFICIAL)
+# LIGAS
 # =========================================================
 LIGAS_MAPA = {
     "Brasileirão - Série A": {"slug": "bra.1", "base_home": 1.45, "base_away": 1.05},
     "Brasileirão - Série B": {"slug": "bra.2", "base_home": 1.35, "base_away": 0.95},
-    "Brasileirão - Série C": {"slug": "bra.3", "base_home": 1.30, "base_away": 0.90},
     "Equador - LigaPro": {"slug": "ecu.1", "base_home": 1.60, "base_away": 1.10},
     "Chile - Primera División": {"slug": "chi.1", "base_home": 1.50, "base_away": 1.12},
     "Suécia - Allsvenskan": {"slug": "swe.1", "base_home": 1.65, "base_away": 1.28},
-    "Suécia - Superettan": {"slug": "swe.2", "base_home": 1.55, "base_away": 1.20},
     "Alemanha - Bundesliga": {"slug": "ger.1", "base_home": 1.75, "base_away": 1.38},
-    "Holanda - Eredivisie": {"slug": "ned.1", "base_home": 1.78, "base_away": 1.40},
 }
 
 # =========================================================
@@ -49,42 +56,54 @@ LIGAS_MAPA = {
 # =========================================================
 @st.cache_data(ttl=300)
 def carregar_dados_online():
-    jogos = []
+    todos_jogos = []
 
-    for liga, cfg in LIGAS_MAPA.items():
-        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{cfg['slug']}/scoreboard"
+    for nome_liga, config in LIGAS_MAPA.items():
+        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard"
 
         try:
-            r = requests.get(url, timeout=10)
+            r = requests.get(url, timeout=8)
             if r.status_code != 200:
                 continue
 
             data = r.json()
 
-            for ev in data.get("events", []):
-                comp = ev["competitions"][0]
+            for event in data.get("events", []):
+
+                status = event["status"]["type"]["name"]
+
+                # ✅ CORREÇÃO PRINCIPAL: sem offset de -3h
+                date_raw = pd.to_datetime(event["date"], utc=True).tz_convert(None)
+
+                comp = event["competitions"][0]
                 home = comp["competitors"][0]
                 away = comp["competitors"][1]
 
-                home_team = home["team"]["displayName"]
-                away_team = away["team"]["displayName"]
+                h_team = home["team"]["displayName"]
+                a_team = away["team"]["displayName"]
 
-                home_score = int(home["score"]) if home.get("score") else np.nan
-                away_score = int(away["score"]) if away.get("score") else np.nan
+                h_score = np.nan
+                a_score = np.nan
 
-                jogos.append({
-                    "League": liga,
-                    "Date": pd.to_datetime(ev["date"]).tz_localize(None),
-                    "Home": home_team,
-                    "Away": away_team,
-                    "GOLS_HOME": home_score,
-                    "GOLS_AWAY": away_score
+                if status in ["STATUS_FINAL", "STATUS_FULL_TIME"]:
+                    h_score = int(home["score"])
+                    a_score = int(away["score"])
+
+                todos_jogos.append({
+                    "League": nome_liga,
+                    "Date": date_raw,
+                    "DateStr": date_raw.strftime("%d/%m/%Y"),
+                    "Time": date_raw.strftime("%H:%M"),
+                    "Home": h_team,
+                    "Away": a_team,
+                    "GOLS_HOME": h_score,
+                    "GOLS_AWAY": a_score,
                 })
 
         except:
             continue
 
-    df = pd.DataFrame(jogos)
+    df = pd.DataFrame(todos_jogos)
 
     if not df.empty:
         df["TOTALGOALS"] = df["GOLS_HOME"] + df["GOLS_AWAY"]
@@ -95,152 +114,105 @@ def carregar_dados_online():
 df = carregar_dados_online()
 
 if df.empty:
-    st.error("Sem dados da ESPN")
+    st.error("Nenhum dado retornado da ESPN")
     st.stop()
 
-df_hist = df.dropna().copy()
-df_future = df[df["GOLS_HOME"].isna()].copy()
+# =========================================================
+# ✅ CORREÇÃO DE DATA (CRÍTICO)
+# =========================================================
+hoje = pd.Timestamp.now().normalize()
 
-hoje = pd.Timestamp.now().floor("D")
+df_hist = df[df["GOLS_HOME"].notna()].copy()
+
+df_future = df[
+    df["GOLS_HOME"].isna()
+].copy()
+
+df_future = df_future[df_future["Date"].dt.normalize() >= hoje]
 
 # =========================================================
-# PESO TEMPORAL
+# FUNÇÕES
 # =========================================================
-def peso_temporal(data_jogo, data_ref):
-    dias = (data_ref - data_jogo).days
-    return np.exp(-0.006 * dias)
+def dixon_coles(lh, la, max_g=8):
+    ph = poisson.pmf(range(max_g+1), lh)
+    pa = poisson.pmf(range(max_g+1), la)
+    m = np.outer(ph, pa)
+    return m / m.sum()
 
-# =========================================================
-# FORÇA DE TIME (AJUSTADA)
-# =========================================================
-def forca_time(team, side, data_ref, liga, lh, la):
 
-    jogos = df_hist[(df_hist["League"] == liga) & (df_hist["Date"] < data_ref)]
+def forca_time(team, side):
+    if df_hist.empty:
+        return 1.0, 1.0
+
+    jogos = df_hist
 
     t = jogos[jogos["Home"] == team] if side == "home" else jogos[jogos["Away"] == team]
-
-    if len(t) < 3:
-        t = jogos
 
     if len(t) == 0:
         return 1.0, 1.0
 
-    t = t.copy()
-    t["peso"] = peso_temporal(t["Date"], data_ref)
+    atk = np.nanmean(t["GOLS_HOME"] if side == "home" else t["GOLS_AWAY"])
+    def_ = np.nanmean(t["GOLS_AWAY"] if side == "home" else t["GOLS_HOME"])
 
-    if side == "home":
-        atk = np.average(t["GOLS_HOME"], weights=t["peso"])
-        def_ = np.average(t["GOLS_AWAY"], weights=t["peso"])
-    else:
-        atk = np.average(t["GOLS_AWAY"], weights=t["peso"])
-        def_ = np.average(t["GOLS_HOME"], weights=t["peso"])
+    return atk or 1.2, def_ or 1.2
 
-    ataque = min(max(atk / lh, 0.6), 1.8)
-    defesa = min(max(def_ / la, 0.6), 1.8)
-
-    return ataque, defesa
 
 # =========================================================
-# POISSON
+# PROJEÇÃO
 # =========================================================
-def dixon_coles(lh, la, max_g=8):
-    p_h = poisson.pmf(range(max_g), lh)
-    p_a = poisson.pmf(range(max_g), la)
-    m = np.outer(p_h, p_a)
-    return m / m.sum()
-
-# =========================================================
-# VALUE DETECTOR
-# =========================================================
-def detectar_melhor_valor(hw, d, aw, o15, o25, u35, btts, xg, home, away):
-
-    if hw > 62:
-        return f"🔥 {home} vence"
-
-    if aw > 55:
-        return f"🚀 {away} vence"
-
-    if btts > 60:
-        return "🎯 BTTS SIM"
-
-    if o25 > 58 and xg > 2.2:
-        return "⚽ Over 2.5"
-
-    if d > 30:
-        return "🤝 Empate forte"
-
-    if o15 > 80:
-        return "🛡️ Over 1.5"
-
-    return "⚖️ Sem valor"
-
-# =========================================================
-# BTTS + PLACAR
-# =========================================================
-def extras(p):
-
-    btts = (1 - p[0, :].sum() - p[:, 0].sum() + p[0, 0]) * 100
-
-    best = np.unravel_index(np.argmax(p), p.shape)
-    score = f"{best[0]}x{best[1]}"
-
-    return btts, score
-
-# =========================================================
-# SCANNER
-# =========================================================
-st.subheader("📊 Scanner ESPN")
+st.subheader("📊 Scanner de Jogos")
 
 saida = []
 
-for _, r in df_future.iterrows():
+if not df_future.empty:
 
-    liga = r["League"]
+    for _, r in df_future.iterrows():
 
-    lh = LIGAS_MAPA[liga]["base_home"]
-    la = LIGAS_MAPA[liga]["base_away"]
+        home = r["Home"]
+        away = r["Away"]
 
-    ah, dh = forca_time(r["Home"], "home", r["Date"], liga, lh, la)
-    aa, da = forca_time(r["Away"], "away", r["Date"], liga, lh, la)
+        ah, ad = forca_time(home, "home")
+        aa, ad2 = forca_time(away, "away")
 
-    xg_h = (ah * da * lh) * 0.7 + lh * 0.3
-    xg_a = (aa * dh * la) * 0.7 + la * 0.3
+        xg_h = max(0.8, ah * 1.3)
+        xg_a = max(0.8, aa * 1.1)
 
-    xg_h = np.clip(xg_h, 0.3, 2.4)
-    xg_a = np.clip(xg_a, 0.3, 2.4)
+        p = dixon_coles(xg_h, xg_a)
 
-    p = dixon_coles(xg_h, xg_a)
+        home_win = np.sum(np.tril(p, -1)) * 100
+        draw = np.sum(np.diag(p)) * 100
+        away_win = np.sum(np.triu(p, 1)) * 100
 
-    home = np.sum(np.tril(p, -1)) * 100
-    draw = np.sum(np.diag(p)) * 100
-    away = np.sum(np.triu(p, 1)) * 100
+        over25 = (1 - np.sum(p[:3, :3])) * 100
 
-    total = xg_h + xg_a
+        saida.append({
+            "Date": r["DateStr"],
+            "Home": home,
+            "Away": away,
+            "Home Win %": round(home_win, 1),
+            "Draw %": round(draw, 1),
+            "Away Win %": round(away_win, 1),
+            "Over 2.5 %": round(over25, 1),
+        })
 
-    gols = np.array([np.sum([p[i, j] for i in range(8) for j in range(8) if i+j == k]) for k in range(15)])
+    df_proj = pd.DataFrame(saida)
 
-    o15 = (1 - gols[0] - gols[1]) * 100
-    o25 = (1 - np.sum(gols[:3])) * 100
-    u35 = np.sum(gols[:4]) * 100
+    # =====================================================
+    # OUTPUT SEM QUEBRAR
+    # =====================================================
+    for _, j in df_proj.iterrows():
+        st.markdown(f"""
+        <div class="match-box">
+            <div class="league-badge">{j['Date']}</div>
+            <h3>{j['Home']} vs {j['Away']}</h3>
 
-    btts, score = extras(p)
+            <p>
+            🏠 Home: {j['Home Win %']}% | 🤝 {j['Draw %']}% | 🚀 {j['Away Win %']}%
+            </p>
 
-    value = detectar_melhor_valor(home, draw, away, o15, o25, u35, btts, total, r["Home"], r["Away"])
+            <p><b>Over 2.5:</b> {j['Over 2.5 %']}%</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-    saida.append({
-        "Home": r["Home"],
-        "Away": r["Away"],
-        "League": liga,
-        "xG": round(total, 2),
-        "1": round(home, 1),
-        "X": round(draw, 1),
-        "2": round(away, 1),
-        "Over2.5": round(o25, 1),
-        "BTTS": round(btts, 1),
-        "Score": score,
-        "Value": value
-    })
-
-df_out = pd.DataFrame(saida)
-
-st.dataframe(df_out, use_container_width=True)
+else:
+    st.warning("⚠️ Nenhum jogo futuro encontrado na ESPN agora.")
