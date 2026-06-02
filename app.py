@@ -400,13 +400,20 @@ else:
     st.info("Nenhum confronto futuro sem resultado foi retornado pela API neste momento.")
 
 # =========================================================
-# CENTRAL DE LIQUIDEZ E BANCO HISTÓRICO ONLINE
+# CENTRAL DE LIQUIDEZ E BANCO HISTÓRICO ONLINE (CORRIGIDO)
 # =========================================================
 st.markdown("---")
 with st.expander("🗂️ Central de Liquidez e Banco de Dados Histórico Online"):
-    if not df_future.empty and not df_proj.empty:
-        liga_default = df_proj["League"].iloc[0]
-        df_hist_view = df_hist[df_hist["League"] == liga_default]
+    
+    # Filtro dinâmico para escolher a liga no histórico (Evita travar em uma liga só)
+    if not df_hist.empty:
+        ligas_disponiveis_hist = ["Todas as Ligas"] + list(sorted(df_hist["League"].unique()))
+        liga_hist_selecionada = st.selectbox("🔍 Filtrar Banco de Dados por Liga:", ligas_disponiveis_hist, key="sb_hist_liga")
+        
+        if liga_hist_selecionada != "Todas as Ligas":
+            df_hist_view = df_hist[df_hist["League"] == liga_hist_selecionada]
+        else:
+            df_hist_view = df_hist
     else:
         df_hist_view = df_hist
 
@@ -418,8 +425,7 @@ with st.expander("🗂️ Central de Liquidez e Banco de Dados Histórico Online
         st.markdown(f'<div class="metric-card"><div class="metric-title">Média de Gols Dinâmica</div><div class="metric-value">{media_g_hist:.2f}</div></div>', unsafe_allow_html=True)
     with col3:
         pct_over = (df_hist_view["TOTALGOALS"] > 2.5).mean() * 100 if not df_hist_view.empty else 0.0
-        st.markdown(f'<div class="metric-card"><div class="metric-title">Liquidez Over 2.5 (Liga Atual)</div><div class="metric-value">{pct_over:.1f}%</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card"><div class="metric-title">Liquidez Over 2.5 (Filtro Atual)</div><div class="metric-value">{pct_over:.1f}%</div></div>', unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
-    if not df_hist_view.empty:
-        st.dataframe(df_hist_view[["DateStr", "Time", "Home", "Score", "Away", "TOTALGOALS", "League"]].sort_values(by="Date", ascending=False), use_container_width=True)
+    # OBS: A tabela de dados (st.dataframe) foi removida deste bloco conforme solicitado.
