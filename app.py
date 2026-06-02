@@ -83,7 +83,7 @@ def carregar_dados_online():
     todos_jogos = []
     
     for nome_liga, config in LIGAS_MAPA.items():
-        # Trava anti-duplicados ISOLADA por liga para não matar jogos de outros campeonatos
+        # Trava anti-duplicados ISOLADA por liga para não comprometer outros campeonatos
         times_no_dia_da_liga = set()
         
         url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates=20260101-20261231&limit=300"
@@ -95,7 +95,7 @@ def carregar_dados_online():
             for event in data.get('events', []):
                 status_type = event['status']['type']['name']
                 
-                # Tratamento robusto de data e fuso horário
+                # Tratamento de data e fuso horário
                 date_utc = pd.to_datetime(event['date']).tz_convert('UTC')
                 if date_utc.hour in [0, 4] and date_utc.minute == 0:
                     date_raw = date_utc.replace(tzinfo=None)
@@ -117,11 +117,10 @@ def carregar_dados_online():
                 h_team = str(h_team).strip()
                 a_team = str(a_team).strip()
                 
-                # Se os nomes vierem corrompidos ou vazios pela API, ignora a linha ruidosa
-                if not h_team or not a_team or h_team == away_team:
+                if not h_team or not a_team or h_team == a_team:
                     continue
 
-                # Chave única baseada estritamente no confronto para evitar repetição artificial da API
+                # Chaves diárias individuais para controle de concorrência na mesma data
                 confronto_chave_home = f"{date_str_key}_{h_team}"
                 confronto_chave_away = f"{date_str_key}_{a_team}"
                 
@@ -132,16 +131,15 @@ def carregar_dados_online():
                     h_score = int(home_node['score']) if home_node['homeAway'] == 'home' else int(away_node['score'])
                     a_score = int(away_node['score']) if away_node['homeAway'] == 'away' else int(home_node['score'])
 
-                # Para projeções (sem resultado), checa e aplica a trava diária isolada por liga
+                # Para linhas sem resultado (Projeções), aplica o bloqueio intra-liga
                 if np.isnan(h_score):
                     if confronto_chave_home in times_no_dia_da_liga or confronto_chave_away in times_no_dia_da_liga:
-                        continue # Ignora a cópia fantasma gerada pela API
+                        continue 
                     
-                    # Se passou, registra que esses times já estão alocados nesta data nesta liga
                     times_no_dia_da_liga.add(confronto_chave_home)
                     times_no_dia_da_liga.add(confronto_chave_away)
 
-                # UID forte e limpo para o pandas
+                # UID estruturado para remoção de redundância no DataFrame final
                 uid = f"{nome_liga}_{date_str_key}_{h_team}_vs_{a_team}".replace(" ", "_")
 
                 todos_jogos.append({
@@ -164,7 +162,7 @@ def carregar_dados_online():
     df = pd.DataFrame(todos_jogos)
     if not df.empty:
         df["TOTALGOALS"] = df["GOLS_HOME"] + df["GOLS_AWAY"]
-        # Segundo nível de segurança: limpa qualquer ID duplicado residual pelo pandas
+        # Garante a eliminação final de qualquer duplicata residual do JSON
         df = df.drop_duplicates(subset=["UID"], keep='first')
         
     return df
@@ -329,7 +327,7 @@ if not df_future.empty:
 if saida:
     df_proj = pd.DataFrame(saida)
     
-    # Ordena as datas de forma puramente cronológica no seletor do painel
+    # Ordenação cronológica real das datas no seletor
     datas_disponiveis = sorted(df_proj["Date"].unique(), key=lambda x: pd.to_datetime(x, format="%d/%m/%Y"))
     
     if datas_disponiveis:
@@ -337,7 +335,6 @@ if saida:
         with col_sel:
             data_selecionada = st.selectbox("🎯 Filtrar Rodada por Data (Próximos Jogos):", datas_disponiveis)
         
-        # Filtro estrito: Carrega tudo agendado para a data selecionada
         df_proj_filtrado = df_proj[df_proj["Date"] == data_selecionada]
 
         for _, jogo in df_proj_filtrado.iterrows():
