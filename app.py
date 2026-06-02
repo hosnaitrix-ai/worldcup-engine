@@ -81,9 +81,11 @@ LIGAS_MAPA = {
 @st.cache_data(ttl=300)
 def carregar_dados_online():
     todos_jogos = []
-    times_no_dia = set()
     
     for nome_liga, config in LIGAS_MAPA.items():
+        # Trava anti-duplicados ISOLADA por liga para não matar jogos de outros campeonatos
+        times_no_dia_da_liga = set()
+        
         url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates=20260101-20261231&limit=300"
         try:
             response = requests.get(url, timeout=8)
@@ -93,6 +95,7 @@ def carregar_dados_online():
             for event in data.get('events', []):
                 status_type = event['status']['type']['name']
                 
+                # Tratamento robusto de data e fuso horário
                 date_utc = pd.to_datetime(event['date']).tz_convert('UTC')
                 if date_utc.hour in [0, 4] and date_utc.minute == 0:
                     date_raw = date_utc.replace(tzinfo=None)
@@ -114,13 +117,14 @@ def carregar_dados_online():
                 h_team = str(h_team).strip()
                 a_team = str(a_team).strip()
                 
-                # CONTROLE ANTI-RUÍDO: Um time só pode ter 1 registro de projeção/jogo na mesma data
-                pra_chave_home = f"{date_str_key}_{h_team}"
-                pra_chave_away = f"{date_str_key}_{a_team}"
-                
-                if pra_chave_home in times_no_dia or pra_chave_away in times_no_dia:
-                    continue 
+                # Se os nomes vierem corrompidos ou vazios pela API, ignora a linha ruidosa
+                if not h_team or not a_team or h_team == away_team:
+                    continue
 
+                # Chave única baseada estritamente no confronto para evitar repetição artificial da API
+                confronto_chave_home = f"{date_str_key}_{h_team}"
+                confronto_chave_away = f"{date_str_key}_{a_team}"
+                
                 h_score = np.nan
                 a_score = np.nan
                 
@@ -128,7 +132,17 @@ def carregar_dados_online():
                     h_score = int(home_node['score']) if home_node['homeAway'] == 'home' else int(away_node['score'])
                     a_score = int(away_node['score']) if away_node['homeAway'] == 'away' else int(home_node['score'])
 
-                uid = f"{nome_liga}_{date_str_key}_{h_team}_{a_team}"
+                # Para projeções (sem resultado), checa e aplica a trava diária isolada por liga
+                if np.isnan(h_score):
+                    if confronto_chave_home in times_no_dia_da_liga or confronto_chave_away in times_no_dia_da_liga:
+                        continue # Ignora a cópia fantasma gerada pela API
+                    
+                    # Se passou, registra que esses times já estão alocados nesta data nesta liga
+                    times_no_dia_da_liga.add(confronto_chave_home)
+                    times_no_dia_da_liga.add(confronto_chave_away)
+
+                # UID forte e limpo para o pandas
+                uid = f"{nome_liga}_{date_str_key}_{h_team}_vs_{a_team}".replace(" ", "_")
 
                 todos_jogos.append({
                     "UID": uid,
@@ -143,11 +157,6 @@ def carregar_dados_online():
                     "Score": f"{h_score}–{a_score}" if not np.isnan(h_score) else "vs",
                     "Status": status_type
                 })
-                
-                # Trava a escala do time no dia caso o confronto seja uma projeção válida (sem resultado)
-                if np.isnan(h_score):
-                    times_no_dia.add(pra_chave_home)
-                    times_no_dia.add(pra_chave_away)
                     
         except Exception:
             continue
@@ -155,6 +164,7 @@ def carregar_dados_online():
     df = pd.DataFrame(todos_jogos)
     if not df.empty:
         df["TOTALGOALS"] = df["GOLS_HOME"] + df["GOLS_AWAY"]
+        # Segundo nível de segurança: limpa qualquer ID duplicado residual pelo pandas
         df = df.drop_duplicates(subset=["UID"], keep='first')
         
     return df
