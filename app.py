@@ -58,16 +58,21 @@ st.markdown("---")
 LIGAS_MAPA = {
     "Brasileirão - Série A": {"slug": "bra.1", "base_home": 1.45, "base_away": 1.05},
     "Brasileirão - Série B": {"slug": "bra.2", "base_home": 1.35, "base_away": 0.95},
-    "Brasileirão - Série C": {"slug": "bra.3", "base_home": 1.30, "base_away": 0.90},
-    "Equador - LigaPro": {"slug": "ecu.1", "base_home": 1.60, "base_away": 1.10},
-    "Chile - Primera División": {"slug": "chi.1", "base_home": 1.50, "base_away": 1.12},
-    "Suécia - Allsvenskan": {"slug": "swe.1", "base_home": 1.65, "base_away": 1.28},
-    "Suécia - Superettan": {"slug": "swe.2", "base_home": 1.55, "base_away": 1.20},
-    "Suécia - Damallsvenskan": {"slug": "swe.w.1", "base_home": 1.70, "base_away": 1.35},
-    "Finlândia - Veikkausliiga": {"slug": "fin.1", "base_home": 1.48, "base_away": 1.18},
+    "Brasileirão - Feminino": {"slug": "bra.women.1", "base_home": 1.58, "base_away": 1.18},
     "Alemanha - Bundesliga": {"slug": "ger.1", "base_home": 1.75, "base_away": 1.38},
     "Holanda - Eredivisie": {"slug": "ned.1", "base_home": 1.78, "base_away": 1.40},
-    "UEFA Champions League": {"slug": "uefa.champions", "base_home": 1.60, "base_away": 1.25}
+    "Finlândia - Veikkausliiga": {"slug": "fin.1", "base_home": 1.48, "base_away": 1.18},
+    "Suécia - Allsvenskan": {"slug": "swe.1", "base_home": 1.65, "base_away": 1.28},
+    "Suécia - Superettan": {"slug": "swe.2", "base_home": 1.55, "base_away": 1.20},
+    "Suécia - Damallsvenskan": {"slug": "swe.women.1", "base_home": 1.85, "base_away": 1.40},
+    "Noruega - Eliteserien": {"slug": "nor.1", "base_home": 1.70, "base_away": 1.35},
+    "Chile - Primera División": {"slug": "chi.1", "base_home": 1.50, "base_away": 1.12},
+    "Equador - LigaPro": {"slug": "ecu.1", "base_home": 1.60, "base_away": 1.10},
+    "EUA - MLS": {"slug": "usa.1", "base_home": 1.68, "base_away": 1.30},
+    "UEFA Champions League": {"slug": "champions", "base_home": 1.65, "base_away": 1.30},
+    "Copa Libertadores": {"slug": "libertadores", "base_home": 1.45, "base_away": 1.05},
+    "Copa Sudamericana": {"slug": "sudamericana", "base_home": 1.35, "base_away": 0.95},
+    "Copa do Mundo 2026": {"slug": "fifa.world.cup", "base_home": 1.52, "base_away": 1.18}
 }
 
 # =========================================================
