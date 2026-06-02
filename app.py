@@ -14,7 +14,11 @@ if sys.platform == 'win32':
 # =========================================================
 # CONFIGURAÇÃO DA PÁGINA
 # =========================================================
-st.set_page_config(page_title="LiveScanner Pro - Multi-Liga Online", page_icon="⚡", layout="wide")
+st.set_page_config(
+    page_title="LiveScanner Pro - Multi-Liga Online",
+    page_icon="⚡",
+    layout="wide"
+)
 
 st.markdown("""
     <style>
@@ -41,8 +45,13 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+st.markdown('<p style="color:#6366F1; font-weight:bold; text-transform:uppercase; font-size:12px; margin-bottom:0;">⚡ LiveScanner & Probability Engine</p>', unsafe_allow_html=True)
 st.title("📊 ANÁLISE DE FUTEBOL - By Freed Cesar")
+st.markdown("---")
 
+# =========================================================
+# DICIONÁRIO DE CONFIGURAÇÃO DE LIGAS
+# =========================================================
 LIGAS_MAPA = {
     "Brasileirão - Série A": {"slug": "bra.1", "base_home": 1.45, "base_away": 1.05},
     "Brasileirão - Série B": {"slug": "bra.2", "base_home": 1.35, "base_away": 0.95},
@@ -51,27 +60,32 @@ LIGAS_MAPA = {
     "Chile - Primera División": {"slug": "chi.1", "base_home": 1.50, "base_away": 1.12},
     "Suécia - Allsvenskan": {"slug": "swe.1", "base_home": 1.65, "base_away": 1.28},
     "Suécia - Superettan": {"slug": "swe.2", "base_home": 1.55, "base_away": 1.20},
-    "Suécia - Damallsvenskan": {"slug": "swe.1w", "base_home": 1.70, "base_away": 1.35},
+    "Suécia - Damallsvenskan": {"slug": "swe.w.1", "base_home": 1.70, "base_away": 1.35},
     "Finlândia - Veikkausliiga": {"slug": "fin.1", "base_home": 1.48, "base_away": 1.18},
     "Alemanha - Bundesliga": {"slug": "ger.1", "base_home": 1.75, "base_away": 1.38},
     "Holanda - Eredivisie": {"slug": "ned.1", "base_home": 1.78, "base_away": 1.40},
     "UEFA Champions League": {"slug": "uefa.champions", "base_home": 1.60, "base_away": 1.25}
 }
 
+# =========================================================
+# MOTOR DE CAPTURA ONLINE
+# =========================================================
 @st.cache_data(ttl=300)
 def carregar_dados_online():
     todos_jogos = []
     for nome_liga, config in LIGAS_MAPA.items():
         url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates=20260101-20261231&limit=300"
         try:
-            response = requests.get(url, timeout=8)
+            response = requests.get(url, timeout=10)
             if response.status_code != 200: continue
             data = response.json()
             for event in data.get('events', []):
                 status_type = event['status']['type']['name']
                 date_raw = pd.to_datetime(event['date']).tz_localize(None) - pd.Timedelta(hours=3)
+                
                 comp = event['competitions'][0]
                 competitors = comp['competitors']
+                # Garantia de segurança na extração dos times
                 home_node = next((c for c in competitors if c['homeAway'] == 'home'), None)
                 away_node = next((c for c in competitors if c['homeAway'] == 'away'), None)
                 
@@ -80,41 +94,62 @@ def carregar_dados_online():
                 h_team = home_node['team']['displayName']
                 a_team = away_node['team']['displayName']
                 
-                h_score, a_score = np.nan, np.nan
+                h_score = np.nan
+                a_score = np.nan
+                
                 if status_type in ["STATUS_FULL_TIME", "STATUS_FINAL"]:
-                    h_score = int(home_node.get('score', 0))
-                    a_score = int(away_node.get('score', 0))
+                    h_score = float(home_node.get('score', 0))
+                    a_score = float(away_node.get('score', 0))
                 
                 todos_jogos.append({
-                    "League": nome_liga, "Date": date_raw, "DateStr": date_raw.strftime("%d/%m/%Y"),
-                    "Time": date_raw.strftime("%H:%M"), "Home": h_team.strip(), "Away": a_team.strip(),
-                    "GOLS_HOME": h_score, "GOLS_AWAY": a_score,
-                    "Score": f"{h_score}–{a_score}" if not np.isnan(h_score) else "vs"
+                    "League": nome_liga,
+                    "Date": date_raw,
+                    "DateStr": date_raw.strftime("%d/%m/%Y"),
+                    "Time": date_raw.strftime("%H:%M"),
+                    "Home": str(h_team).strip(),
+                    "Away": str(a_team).strip(),
+                    "GOLS_HOME": h_score,
+                    "GOLS_AWAY": a_score,
+                    "Score": f"{int(h_score)}–{int(a_score)}" if not np.isnan(h_score) else "vs"
                 })
-            time.sleep(0.3)
         except Exception: continue
+    
     df = pd.DataFrame(todos_jogos)
     if not df.empty:
+        df["TOTALGOALS"] = df["GOLS_HOME"] + df["GOLS_AWAY"]
         df = df.drop_duplicates(subset=["DateStr", "Home", "Away"])
-        df["TOTALGOALS"] = df["GOLS_HOME"].fillna(0) + df["GOLS_AWAY"].fillna(0)
     return df
 
 df = carregar_dados_online()
+
 if df.empty:
     st.error("Nenhum dado pôde ser coletado das APIs online neste momento.")
     st.stop()
 
 hoje = pd.Timestamp.now().floor('D')
-df_hist = df[df["GOLS_HOME"].notna() & (df["Date"] < hoje)].copy()
-df_future = df[df["GOLS_HOME"].isna() & (df["Date"] >= hoje)].copy()
+df_hist = df[df["GOLS_HOME"].notna()].copy()
+df_future = df[(df["GOLS_HOME"].isna()) & (df["Date"] >= hoje)].copy()
 
-# Pré-calculo de médias para performance (Otimização)
-medias_ligas = {liga: {
-    "home": max(df_hist[df_hist["League"] == liga]["GOLS_HOME"].mean(), 1.0) if not df_hist[df_hist["League"] == liga].empty else LIGAS_MAPA[liga]["base_home"],
-    "away": max(df_hist[df_hist["League"] == liga]["GOLS_AWAY"].mean(), 1.0) if not df_hist[df_hist["League"] == liga].empty else LIGAS_MAPA[liga]["base_away"]
-} for liga in LIGAS_MAPA}
+# =========================================================
+# PRÉ-CÁLCULO DE MÉDIAS (OTIMIZAÇÃO)
+# =========================================================
+ligas_medias = {}
+for nome_liga in LIGAS_MAPA.keys():
+    subset = df_hist[df_hist["League"] == nome_liga]
+    if not subset.empty:
+        ligas_medias[nome_liga] = {
+            "home": max(subset["GOLS_HOME"].mean(), 1.0),
+            "away": max(subset["GOLS_AWAY"].mean(), 1.0)
+        }
+    else:
+        ligas_medias[nome_liga] = {
+            "home": LIGAS_MAPA[nome_liga]["base_home"],
+            "away": LIGAS_MAPA[nome_liga]["base_away"]
+        }
 
-# Funções (Mantidas conforme seu original, garantindo compatibilidade)
+# =========================================================
+# FUNÇÕES DE CÁLCULO
+# =========================================================
 def peso_temporal(data_jogo, data_ref, xi=0.0065):
     dias = (data_ref - data_jogo).dt.days
     return np.exp(-xi * dias)
@@ -123,13 +158,27 @@ def forca_time(team, side, data_ref, liga_jogo, l_home_mean, l_away_mean):
     if df_hist.empty: return 1.0, 1.0
     jogos = df_hist[(df_hist["Date"] < data_ref) & (df_hist["League"] == liga_jogo)].copy()
     t = jogos[jogos["Home"] == team] if side == "home" else jogos[jogos["Away"] == team]
+    
     if len(t) < 3: return 1.0, 1.0
+    
     t.loc[:, "peso"] = peso_temporal(t["Date"], data_ref)
-    atk = np.average(t["GOLS_HOME" if side == "home" else "GOLS_AWAY"], weights=t["peso"])
-    def_ = np.average(t["GOLS_AWAY" if side == "home" else "GOLS_HOME"], weights=t["peso"])
+    
+    # Seleção de gols dependendo do lado
+    col_atk = "GOLS_HOME" if side == "home" else "GOLS_AWAY"
+    col_def = "GOLS_AWAY" if side == "home" else "GOLS_HOME"
+    
+    atk = np.average(t[col_atk], weights=t["peso"])
+    def_ = np.average(t[col_def], weights=t["peso"])
+    
     fator = min(len(t) / 8, 1)
-    ataque = fator * (atk / (l_home_mean if side == "home" else l_away_mean)) + (1 - fator)
-    defesa = fator * (def_ / (l_away_mean if side == "home" else l_home_mean)) + (1 - fator)
+    
+    if side == "home":
+        ataque = fator * (atk / l_home_mean) + (1 - fator)
+        defesa = fator * (def_ / l_away_mean) + (1 - fator)
+    else:
+        ataque = fator * (atk / l_away_mean) + (1 - fator)
+        defesa = fator * (def_ / l_home_mean) + (1 - fator)
+        
     return ataque, defesa
 
 def dixon_coles(lh, la, rho=-0.1, max_g=10):
@@ -153,41 +202,80 @@ def detectar_melhor_valor(hw, d, aw, o15, o25, u35, xg, home, away):
 
 def obter_melhor_opcao_anytime(p, home, away):
     opcoes = {
-        f"1-0 favor {home} a Qualquer Momento": p[1:, 0:].sum() * 100,  
-        f"2-0 favor {home} a Qualquer Momento": p[2:, 0:].sum() * 100,  
-        f"2-1 favor {home} a Qualquer Momento": p[2:, 1:].sum() * 100,  
-        f"0-1 favor {away} a Qualquer Momento": p[0:, 1:].sum() * 100,  
-        f"0-2 favor {away} a Qualquer Momento": p[0:, 2:].sum() * 100,  
-        f"1-1 a Qualquer Momento": p[1:, 1:].sum() * 100                
+        f"1-0 favor {home}": p[1:, 0:].sum() * 100,  
+        f"2-0 favor {home}": p[2:, 0:].sum() * 100,  
+        f"2-1 favor {home}": p[2:, 1:].sum() * 100,  
+        f"0-1 favor {away}": p[0:, 1:].sum() * 100,  
+        f"0-2 favor {away}": p[0:, 2:].sum() * 100,  
+        f"1-1": p[1:, 1:].sum() * 100                
     }
     melhor_label = max(opcoes, key=opcoes.get)
-    return melhor_label, opcoes[melhor_label]
+    return f"{melhor_label} a Qualquer Momento", opcoes[melhor_label]
 
-# Exibição
+# =========================================================
+# EXIBIÇÃO DO SCANNER
+# =========================================================
 st.subheader("📊 Scanner de Mercado & Sinais Ativos")
 saida = []
+
 if not df_future.empty:
     for _, r in df_future.iterrows():
-        l_m = medias_ligas[r["League"]]
-        ah, dh = forca_time(r["Home"], "home", r["Date"], r["League"], l_m["home"], l_m["away"])
-        aa, da = forca_time(r["Away"], "away", r["Date"], r["League"], l_m["home"], l_m["away"])
+        liga = r["League"]
+        l_m = ligas_medias[liga]
+        
+        ah, dh = forca_time(r["Home"], "home", r["Date"], liga, l_m["home"], l_m["away"])
+        aa, da = forca_time(r["Away"], "away", r["Date"], liga, l_m["home"], l_m["away"])
+        
         xg_h = np.clip((ah * da * l_m["home"]) * 0.65 + l_m["home"] * 0.35, 0.2, 2.6)
         xg_a = np.clip((aa * dh * l_m["away"]) * 0.65 + l_m["away"] * 0.35, 0.2, 2.4)
+        
         p = dixon_coles(xg_h, xg_a)
         
-        home_win, draw, away_win = np.sum(np.tril(p, -1)) * 100, np.sum(np.diag(p)) * 100, np.sum(np.triu(p, 1)) * 100
+        home_win = np.sum(np.tril(p, -1)) * 100
+        draw = np.sum(np.diag(p)) * 100
+        away_win = np.sum(np.triu(p, 1)) * 100
+        
         gols_c = np.array([np.sum([p[i, j] for i in range(11) for j in range(11) if i + j == k]) for k in range(21)])
-        over15, over25, under35 = (1 - gols_c[0] - gols_c[1]) * 100, (1 - np.sum(gols_c[:3])) * 100, np.sum(gols_c[:4]) * 100
+        over15 = (1 - gols_c[0] - gols_c[1]) * 100
+        over25 = (1 - np.sum(gols_c[:3])) * 100
+        under35 = np.sum(gols_c[:4]) * 100
+        
+        sugestao = detectar_melhor_valor(home_win, draw, away_win, over15, over25, under35, xg_h + xg_a, r["Home"], r["Away"])
         lbl, prob = obter_melhor_opcao_anytime(p, r["Home"], r["Away"])
         
         saida.append({
-            "Date": r["DateStr"], "Time": r["Time"], "Home": r["Home"], "Away": r["Away"], "League": r["League"],
-            "💡 Sugestão Value": detectar_melhor_valor(home_win, draw, away_win, over15, over25, under35, xg_h+xg_a, r["Home"], r["Away"]),
-            "anytime_label": lbl, "anytime_prob": prob, "anytime_odd_justa": 100/max(prob, 1),
-            "Over 1.5 %": round(over15, 1), "Over 2.5 %": round(over25, 1), "Under 3.5 %": round(under35, 1),
-            "Home Win %": round(home_win, 1), "Draw %": round(draw, 1), "Away Win %": round(away_win, 1), "Expected Goals": round(xg_h + xg_a, 2)
+            "RawDate": r["Date"], "Date": r["DateStr"], "Time": r["Time"], "Home": r["Home"], "Away": r["Away"], "League": liga,
+            "Sugestão": sugestao, "anytime": lbl, "prob": prob, "odd": 100 / max(prob, 1.0),
+            "O15": round(over15, 1), "O25": round(over25, 1), "U35": round(under35, 1),
+            "HW": round(home_win, 1), "D": round(draw, 1), "AW": round(away_win, 1), "xG": round(xg_h + xg_a, 2)
         })
 
     df_proj = pd.DataFrame(saida)
-    # Exibição simplificada para o usuário final... (restante do seu código original de exibição aqui)
-    st.dataframe(df_proj) # Sugestão: manter o formato de exibição original, aqui apenas um exemplo de debug
+    
+    # Interface de Seleção
+    data_sel = st.selectbox("🎯 Filtrar Rodada:", sorted(df_proj["Date"].unique()))
+    for _, jogo in df_proj[df_proj["Date"] == data_sel].iterrows():
+        st.markdown(f"""
+        <div class="match-box">
+            <div class="match-header"><span>📅 {jogo['Date']} - {jogo['Time']}</span><span class="league-badge">{jogo['League']}</span></div>
+            <div style="font-size:1.2rem; font-weight:bold;">{jogo['Home']} VS {jogo['Away']}</div>
+            <div style="margin: 10px 0;">{jogo['Sugestão']} | <b>xG: {jogo['xG']}</b></div>
+            <div style="display:flex; gap:10px;">
+                <div class="odd-box-back">Casa {jogo['HW']}%</div>
+                <div class="odd-box-lay">Empate {jogo['D']}%</div>
+                <div class="odd-box-back">Fora {jogo['AW']}%</div>
+                <div class="odd-box-goals">O2.5 {jogo['O25']}%</div>
+            </div>
+            <div class="value-report-box" style="margin-top:10px;">
+                🎯 <b>Elite:</b> {jogo['anytime']} ({jogo['prob']:.1f}%)
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+else:
+    st.info("Nenhum jogo futuro localizado.")
+
+# Footer
+st.markdown("---")
+if not df_hist.empty:
+    with st.expander("🗂️ Banco de Dados Histórico"):
+        st.dataframe(df_hist.sort_values(by="Date", ascending=False), use_container_width=True)
