@@ -25,26 +25,15 @@ st.title("📊 ANÁLISE DE FUTEBOL - By Freed Cesar")
 st.markdown("---")
 
 # =========================================================
-# LIGAS (SUÉCIA RESTAURADA + OUTRAS)
+# LIGAS
 # =========================================================
 LIGAS_MAPA = {
-    # 🇧🇷 Brasil
     "Brasileirão Série A": {"slug": "bra.1"},
     "Brasileirão Série B": {"slug": "bra.2"},
-
-    # 🇩🇪 Alemanha
     "Bundesliga": {"slug": "ger.1"},
-
-    # 🇳🇱 Holanda
     "Eredivisie": {"slug": "ned.1"},
-
-    # 🇺🇸 EUA
     "MLS": {"slug": "usa.1"},
-
-    # 🇪🇺 Europa
     "Champions League": {"slug": "champions"},
-
-    # 🇸🇪 SUÉCIA (RESTAURADO COMPLETO)
     "Suécia - Allsvenskan": {"slug": "swe.1"},
     "Suécia - Superettan": {"slug": "swe.2"},
     "Suécia - Damallsvenskan": {"slug": "swe.women.1"},
@@ -57,14 +46,12 @@ LIGAS_MAPA = {
 def carregar_dados_online():
 
     todos_jogos = []
-    hoje = pd.Timestamp.now().normalize()
 
-    # 🔥 SOMENTE HOJE + 12 DIAS
-    datas_alvo = [hoje + pd.Timedelta(days=i) for i in range(0, 13)]
+    hoje = pd.Timestamp.now(tz="America/Sao_Paulo").normalize()
+    limite_futuro = hoje + pd.Timedelta(days=12)
 
     for nome_liga, config in LIGAS_MAPA.items():
 
-        # 🔥 delay anti-bloqueio
         time.sleep(random.uniform(0.7, 1.4))
 
         url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard"
@@ -78,15 +65,21 @@ def carregar_dados_online():
 
             for event in data.get("events", []):
 
-                comp = event["competitions"][0]
+                date_utc = pd.to_datetime(event["date"], utc=True)
+                date_local = date_utc.tz_convert("America/Sao_Paulo")
 
+                # 🔥 CORREÇÃO CRÍTICA: FILTRO REAL DE FUTURO
+                if date_local.normalize() < hoje:
+                    continue
+                if date_local.normalize() > limite_futuro:
+                    continue
+
+                comp = event["competitions"][0]
                 home = comp["competitors"][0]["team"]["displayName"]
                 away = comp["competitors"][1]["team"]["displayName"]
 
                 status = event["status"]["type"]["name"]
 
-                date_utc = pd.to_datetime(event["date"], utc=True)
-                date_local = date_utc.tz_convert("America/Sao_Paulo")
                 date_raw = date_local.replace(tzinfo=None)
 
                 todos_jogos.append({
@@ -112,17 +105,27 @@ if df.empty:
     st.stop()
 
 # =========================================================
-# FILTRO DE DATA CORRIGIDO
+# 🔥 GARANTIA FINAL: SOMENTE FUTURO
 # =========================================================
-df["DateStr"] = pd.to_datetime(df["Date"]).dt.strftime("%d/%m/%Y")
+df["Date"] = pd.to_datetime(df["Date"])
 
-# 🔥 datas começam HOJE
-datas_disponiveis = sorted(df["DateStr"].unique())
+hoje = pd.Timestamp.now(tz="America/Sao_Paulo").normalize()
+df = df[df["Date"].dt.normalize() >= hoje]
 
+df["DateStr"] = df["Date"].dt.strftime("%d/%m/%Y")
+
+# =========================================================
+# SELETOR DE DATA (CORRIGIDO)
+# =========================================================
 st.subheader("📊 Scanner de Jogos")
 
+datas_disponiveis = sorted(
+    df["DateStr"].unique(),
+    key=lambda x: pd.to_datetime(x, format="%d/%m/%Y")
+)
+
 data_sel = st.selectbox(
-    "📅 Selecione a data (a partir de hoje):",
+    "📅 Selecione a data (HOJE → +12 dias):",
     datas_disponiveis
 )
 
