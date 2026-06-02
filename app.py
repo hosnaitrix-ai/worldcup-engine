@@ -76,14 +76,15 @@ LIGAS_MAPA = {
 }
 
 # =========================================================
-# MOTOR DE CAPTURA ONLINE MULTI-LIGA
+# MOTOR DE CAPTURA ONLINE MULTI-LIGA (BLINDADO ANTI-RUÍDO)
 # =========================================================
 @st.cache_data(ttl=300)
 def carregar_dados_online():
     todos_jogos = []
+    times_no_dia = set()
     
     for nome_liga, config in LIGAS_MAPA.items():
-        url = f"https://site.api.api-sports.io/es/soccer/{config['slug']}/scoreboard" if "api-sports" in config.get("slug", "") else f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates=20260101-20261231&limit=300"
+        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates=20260101-20261231&limit=300"
         try:
             response = requests.get(url, timeout=8)
             if response.status_code != 200: continue
@@ -93,7 +94,6 @@ def carregar_dados_online():
                 status_type = event['status']['type']['name']
                 
                 date_utc = pd.to_datetime(event['date']).tz_convert('UTC')
-                
                 if date_utc.hour in [0, 4] and date_utc.minute == 0:
                     date_raw = date_utc.replace(tzinfo=None)
                     time_str = "A definir"
@@ -101,6 +101,8 @@ def carregar_dados_online():
                     date_local = date_utc.tz_convert('America/Sao_Paulo')
                     date_raw = date_local.replace(tzinfo=None)
                     time_str = date_raw.strftime("%H:%M")
+                
+                date_str_key = date_raw.strftime("%d/%m/%Y")
                 
                 comp = event['competitions'][0]
                 home_node = comp['competitors'][0]
@@ -112,6 +114,13 @@ def carregar_dados_online():
                 h_team = str(h_team).strip()
                 a_team = str(a_team).strip()
                 
+                # CONTROLE RIGOROSO DE DUPLICIDADE POR TIME NO DIA (Estilo Planilha)
+                pra_chave_home = f"{date_str_key}_{h_team}"
+                pra_chave_away = f"{date_str_key}_{a_team}"
+                
+                if pra_chave_home in times_no_dia or pra_chave_away in times_no_dia:
+                    continue 
+
                 h_score = np.nan
                 a_score = np.nan
                 
@@ -119,9 +128,6 @@ def carregar_dados_online():
                     h_score = int(home_node['score']) if home_node['homeAway'] == 'home' else int(away_node['score'])
                     a_score = int(away_node['score']) if away_node['homeAway'] == 'away' else int(home_node['score'])
 
-                date_str_key = date_raw.strftime("%d/%m/%Y")
-                
-                # Identificador absoluto anti-repetição
                 uid = f"{nome_liga}_{date_str_key}_{h_team}_{a_team}"
 
                 todos_jogos.append({
@@ -137,13 +143,18 @@ def carregar_dados_online():
                     "Score": f"{h_score}–{a_score}" if not np.isnan(h_score) else "vs",
                     "Status": status_type
                 })
+                
+                # Trava o time no dia caso o jogo não possua resultado ainda (Jogo futuro válido)
+                if np.isnan(h_score):
+                    times_no_dia.add(pra_chave_home)
+                    times_no_dia.add(pra_chave_away)
+                    
         except Exception:
             continue
             
     df = pd.DataFrame(todos_jogos)
     if not df.empty:
         df["TOTALGOALS"] = df["GOLS_HOME"] + df["GOLS_AWAY"]
-        # Elimina repetições baseado na chave única estrita
         df = df.drop_duplicates(subset=["UID"], keep='first')
         
     return df
@@ -155,16 +166,13 @@ if df.empty:
     st.stop()
 
 # =========================================================
-# SEPARAÇÃO DINÂMICA (ESTILO PLANILHA OFFLINE)
+# SEPARAÇÃO DINÂMICA INTEGRAL (LÓGICA PLANILHA OFFLINE)
 # =========================================================
-# Se não tem gols registrados -> Vai para projeção (df_future)
 df_future = df[df["GOLS_HOME"].isna()].copy()
-
-# Se tem gols registrados -> Vai para histórico base de cálculo (df_hist)
 df_hist = df[df["GOLS_HOME"].notna()].copy()
 
 # =========================================================
-# FUNÇÕES MATEMÁTICAS E PREDITIVAS
+# FUNÇÕES MATEMÁTICAS E PREDITIVAS (DIXON-COLES)
 # =========================================================
 def peso_temporal(data_jogo, data_ref, xi=0.0065):
     dias = (data_ref - data_jogo).dt.days
@@ -311,7 +319,7 @@ if not df_future.empty:
 if saida:
     df_proj = pd.DataFrame(saida)
     
-    # Ordenação estrita por data real cronológica
+    # Organiza o seletor com as datas em ordem puramente cronológica
     datas_disponiveis = sorted(df_proj["Date"].unique(), key=lambda x: pd.to_datetime(x, format="%d/%m/%Y"))
     
     if datas_disponiveis:
@@ -319,7 +327,7 @@ if saida:
         with col_sel:
             data_selecionada = st.selectbox("🎯 Filtrar Rodada por Data (Próximos Jogos):", datas_disponiveis)
         
-        # Filtro Global por Data: Entrega TODOS os jogos agendados daquele dia
+        # Filtro global por data selecionada
         df_proj_filtrado = df_proj[df_proj["Date"] == data_selecionada]
 
         for _, jogo in df_proj_filtrado.iterrows():
