@@ -1,4 +1,5 @@
 import sys
+import time
 import requests
 import streamlit as st
 import pandas as pd
@@ -11,7 +12,7 @@ if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 # =========================================================
-# CONFIGURAÇÃO DA PÁGINA & IDENTIDADE VISUAL TRADING
+# CONFIGURAÇÃO DA PÁGINA & IDENTIDADE VISUAL
 # =========================================================
 st.set_page_config(
     page_title="LiveScanner Pro - Multi-Liga Online",
@@ -24,22 +25,15 @@ st.markdown("""
     .block-container { padding-top: 1.5rem; padding-bottom: 1.5rem; }
     h1 { font-weight: 900 !important; color: #0F172A; letter-spacing: -1px; }
     h3 { font-weight: 700 !important; color: #1E293B; margin-bottom: 0.5rem; }
-    
-    .metric-card { background-color: #0F172A; padding: 1.2rem; border-radius: 8px; border-left: 4px solid #10B981; color: white; }
-    .metric-title { font-size: 11px; text-transform: uppercase; color: #94A3B8; letter-spacing: 1px; font-weight: bold; }
-    .metric-value { font-size: 1.8rem; font-weight: 800; color: #10B981; margin-top: 2px; }
-    
     .match-box { background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
     .match-header { font-size: 12px; color: #64748B; font-weight: 600; text-transform: uppercase; margin-bottom: 0.8rem; border-bottom: 1px solid #F1F5F9; padding-bottom: 4px; display: flex; justify-content: space-between; }
     .league-badge { background: #F1F5F9; color: #4338CA; padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 11px; }
     .team-name { font-size: 1.25rem; font-weight: 700; color: #1E293B; }
     .vs-badge { font-size: 10px; background: #F1F5F9; color: #64748B; padding: 2px 8px; border-radius: 4px; margin: 0 10px; font-weight: bold; }
-    
     .market-title { font-size: 11px; font-weight: bold; color: #475569; text-transform: uppercase; text-align: center; margin-bottom: 4px; }
     .odd-box-back { background: #E0F2FE; border: 1px solid #7DD3FC; color: #0369A1; text-align: center; padding: 8px; border-radius: 6px; font-weight: 800; font-size: 15px; }
     .odd-box-lay { background: #FCE7F3; border: 1px solid #FBCFE8; color: #B91C1C; text-align: center; padding: 8px; border-radius: 6px; font-weight: 800; font-size: 15px; }
     .odd-box-goals { background: #F0FDF4; border: 1px solid #BBF7D0; color: #166534; text-align: center; padding: 8px; border-radius: 6px; font-weight: 800; font-size: 15px; }
-    
     .value-badge { background: #4338CA; color: white; padding: 6px 12px; border-radius: 6px; font-weight: 700; font-size: 13px; display: inline-block; }
     .value-report-box { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px; }
     .report-topic { font-size: 12px; font-weight: 700; color: #4338CA; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
@@ -53,7 +47,7 @@ st.title("📊 ANÁLISE DE FUTEBOL - By Freed Cesar")
 st.markdown("---")
 
 # =========================================================
-# DICIONÁRIO DE CONFIGURAÇÃO DE LIGAS SELECIONADAS
+# DICIONÁRIO DE CONFIGURAÇÃO DE LIGAS
 # =========================================================
 LIGAS_MAPA = {
     "Brasileirão - Série A": {"slug": "bra.1", "base_home": 1.45, "base_away": 1.05},
@@ -76,42 +70,38 @@ LIGAS_MAPA = {
 }
 
 # =========================================================
-# MOTOR DE CAPTURA CIRÚRGICO DIÁRIO (MIRA A DATA ALVO)
+# MOTOR DE CAPTURA COM AJUSTE DE ESTABILIDADE
 # =========================================================
 @st.cache_data(ttl=300)
 def carregar_dados_online():
     todos_jogos = []
     
-    # Gerar uma janela de varredura estrita dia-a-dia para evitar truncamento de paginação na API
     hoje = pd.Timestamp.now().normalize()
     datas_alvo = [hoje + pd.Timedelta(days=i) for i in range(15)]
     
-    # 1. CAPTURA DOS JOGOS PROJETADOS (PRÓXIMOS 14 DIAS) - REQUISIÇÃO POR DIA
+    # 1. CAPTURA DOS JOGOS PROJETADOS (PRÓXIMOS 14 DIAS)
     for data_atual in datas_alvo:
         date_param = data_atual.strftime("%Y%m%d")
         date_str_key = data_atual.strftime("%d/%m/%Y")
         
         for nome_liga, config in LIGAS_MAPA.items():
-            times_no_dia_da_liga = set()
-            url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates={date_param}&limit=100"
+            time.sleep(0.5) # Delay crucial para estabilidade da API
+            url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates={date_param}&limit=1000"
             
             try:
-                response = requests.get(url, timeout=5)
+                response = requests.get(url, timeout=10)
                 if response.status_code != 200: continue
                 data = response.json()
                 
                 for event in data.get('events', []):
                     status_type = event['status']['type']['name']
                     
-                    # Normaliza horário local de Brasília
-                    date_utc = pd.to_datetime(event['date']).tz_convert('UTC')
+                    # Normalização para fuso de Brasília
+                    date_utc = pd.to_datetime(event['date'])
                     date_local = date_utc.tz_convert('America/Sao_Paulo')
                     date_raw = date_local.replace(tzinfo=None)
                     time_str = date_raw.strftime("%H:%M")
                     
-                    if date_utc.hour in [0, 4] and date_utc.minute == 0:
-                        time_str = "A definir"
-
                     comp = event['competitions'][0]
                     home_node = comp['competitors'][0]
                     away_node = comp['competitors'][1]
@@ -119,22 +109,8 @@ def carregar_dados_online():
                     h_team = home_node['team']['displayName'] if home_node['homeAway'] == 'home' else away_node['team']['displayName']
                     a_team = away_node['team']['displayName'] if away_node['homeAway'] == 'away' else home_node['team']['displayName']
                     
-                    h_team = str(h_team).strip()
-                    a_team = str(a_team).strip()
-                    
-                    if not h_team or not a_team or h_team == a_team: continue
-
-                    confronto_chave_home = f"{date_str_key}_{h_team}"
-                    confronto_chave_away = f"{date_str_key}_{a_team}"
-                    
-                    if confronto_chave_home in times_no_dia_da_liga or confronto_chave_away in times_no_dia_da_liga:
-                        continue 
-                    
-                    times_no_dia_da_liga.add(confronto_chave_home)
-                    times_no_dia_da_liga.add(confronto_chave_away)
-
                     uid = f"{nome_liga}_{date_str_key}_{h_team}_vs_{a_team}".replace(" ", "_")
-
+                    
                     todos_jogos.append({
                         "UID": uid, "League": nome_liga, "Date": date_raw, "DateStr": date_str_key,
                         "Time": time_str, "Home": h_team, "Away": a_team,
@@ -143,20 +119,20 @@ def carregar_dados_online():
             except Exception:
                 continue
 
-    # 2. CAPTURA DA BASE HISTÓRICA DE RETROSPECTO (MÉDIAS DE GOLS E Dixon-Coles)
-    # Pega uma janela fixa retroativa para preencher o df_hist e alimentar a matemática
+    # 2. CAPTURA DA BASE HISTÓRICA
     url_hist = "20260101-20260601"
     for nome_liga, config in LIGAS_MAPA.items():
-        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates={url_hist}&limit=300"
+        time.sleep(0.5)
+        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates={url_hist}&limit=1000"
         try:
-            response = requests.get(url, timeout=6)
+            response = requests.get(url, timeout=10)
             if response.status_code != 200: continue
             data = response.json()
             for event in data.get('events', []):
                 status_type = event['status']['type']['name']
                 if status_type not in ["STATUS_FULL_TIME", "STATUS_FINAL"]: continue
                 
-                date_utc = pd.to_datetime(event['date']).tz_convert('UTC')
+                date_utc = pd.to_datetime(event['date'])
                 date_local = date_utc.tz_convert('America/Sao_Paulo')
                 date_raw = date_local.replace(tzinfo=None)
                 
@@ -164,9 +140,8 @@ def carregar_dados_online():
                 home_node = comp['competitors'][0]
                 away_node = comp['competitors'][1]
                 
-                h_team = str(home_node['team']['displayName']).strip() if home_node['homeAway'] == 'home' else str(away_node['team']['displayName']).strip()
-                a_team = str(away_node['team']['displayName']).strip() if away_node['homeAway'] == 'away' else str(home_node['team']['displayName']).strip()
-                
+                h_team = home_node['team']['displayName'] if home_node['homeAway'] == 'home' else away_node['team']['displayName']
+                a_team = away_node['team']['displayName'] if away_node['homeAway'] == 'away' else home_node['team']['displayName']
                 h_score = int(home_node['score']) if home_node['homeAway'] == 'home' else int(away_node['score'])
                 a_score = int(away_node['score']) if away_node['homeAway'] == 'away' else int(home_node['score'])
                 
@@ -184,6 +159,8 @@ def carregar_dados_online():
         df["TOTALGOALS"] = df["GOLS_HOME"] + df["GOLS_AWAY"]
         df = df.drop_duplicates(subset=["UID"], keep='first')
     return df
+
+# ... (Mantenha o restante das suas funções de matemática e UI abaixo conforme o código original)
 
 df = carregar_dados_online()
 
