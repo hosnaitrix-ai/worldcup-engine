@@ -1,78 +1,74 @@
-import streamlit as st
+import sys
 import requests
+import streamlit as st
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 from scipy.stats import poisson
 
-# Configuração da página
-st.set_page_config(layout="wide", page_title="LiveScanner Pro - Completo")
+if sys.platform == 'win32':
+    import asyncio
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-# Dicionário de Ligas
+st.set_page_config(page_title="LiveScanner Pro - Multi-Liga", layout="wide")
+
+# =========================================================
+# CONFIGURAÇÃO DE LIGAS (TODAS AS 17 SOLICITADAS)
+# =========================================================
 LIGAS_MAPA = {
-    "Brasileirão - Série A": "bra.1", "Brasileirão - Série B": "bra.2", 
-    "Brasileirão - Feminino": "bra.women.1", "Alemanha - Bundesliga": "ger.1",
-    "Holanda - Eredivisie": "ned.1", "Finlândia - Veikkausliiga": "fin.1",
-    "Suécia - Allsvenskan": "swe.1", "Suécia - Superettan": "swe.2",
-    "Suécia - Damallsvenskan": "swe.women.1", "Noruega - Eliteserien": "nor.1",
-    "Chile - Primera División": "chi.1", "Equador - LigaPro": "ecu.1",
-    "EUA - MLS": "usa.1", "UEFA Champions League": "champions",
-    "Copa Libertadores": "libertadores", "Copa Sudamericana": "sudamericana",
-    "Copa do Mundo 2026": "fifa.world.cup"
+    "Brasileirão - Série A": {"slug": "bra.1", "base_home": 1.45, "base_away": 1.05},
+    "Brasileirão - Série B": {"slug": "bra.2", "base_home": 1.35, "base_away": 0.95},
+    "Brasileirão - Feminino": {"slug": "bra.women.1", "base_home": 1.58, "base_away": 1.18},
+    "Alemanha - Bundesliga": {"slug": "ger.1", "base_home": 1.75, "base_away": 1.38},
+    "Holanda - Eredivisie": {"slug": "ned.1", "base_home": 1.78, "base_away": 1.40},
+    "Finlândia - Veikkausliiga": {"slug": "fin.1", "base_home": 1.48, "base_away": 1.18},
+    "Suécia - Allsvenskan": {"slug": "swe.1", "base_home": 1.65, "base_away": 1.28},
+    "Suécia - Superettan": {"slug": "swe.2", "base_home": 1.55, "base_away": 1.20},
+    "Suécia - Damallsvenskan": {"slug": "swe.women.1", "base_home": 1.85, "base_away": 1.40},
+    "Noruega - Eliteserien": {"slug": "nor.1", "base_home": 1.70, "base_away": 1.35},
+    "Chile - Primera División": {"slug": "chi.1", "base_home": 1.50, "base_away": 1.12},
+    "Equador - LigaPro": {"slug": "ecu.1", "base_home": 1.60, "base_away": 1.10},
+    "EUA - MLS": {"slug": "usa.1", "base_home": 1.68, "base_away": 1.30},
+    "UEFA Champions League": {"slug": "champions", "base_home": 1.65, "base_away": 1.30},
+    "Copa Libertadores": {"slug": "libertadores", "base_home": 1.45, "base_away": 1.05},
+    "Copa Sudamericana": {"slug": "sudamericana", "base_home": 1.35, "base_away": 0.95},
+    "Copa do Mundo 2026": {"slug": "fifa.world.cup", "base_home": 1.52, "base_away": 1.18}
 }
 
-@st.cache_data(ttl=3600)
-def obter_dados_estruturados():
-    eventos_futuros = []
-    # Busca rodadas futuras
-    datas = pd.date_range(start=pd.Timestamp.now(), periods=10)
+# =========================================================
+# MOTOR DE CAPTURA OTIMIZADO
+# =========================================================
+@st.cache_data(ttl=600)
+def carregar_dados_online():
+    todos_jogos = []
+    datas_alvo = [pd.Timestamp.now().normalize() + pd.Timedelta(days=i) for i in range(14)]
     
-    for nome, slug in LIGAS_MAPA.items():
-        for d in datas:
-            url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{slug}/scoreboard?dates={d.strftime('%Y%m%d')}"
+    for nome_liga, config in LIGAS_MAPA.items():
+        for data in datas_alvo:
+            url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates={data.strftime('%Y%m%d')}"
             try:
-                r = requests.get(url, timeout=3).json()
-                for e in r.get('events', []):
-                    comp = e['competitions'][0]
-                    # Identificar se é jogo futuro
-                    if e['status']['type']['state'] == 'pre':
-                        eventos_futuros.append({
-                            "Liga": nome, "Data": d.strftime("%d/%m/%Y"),
-                            "Home": comp['competitors'][0]['team']['displayName'],
-                            "Away": comp['competitors'][1]['team']['displayName']
-                        })
+                resp = requests.get(url, timeout=5).json()
+                for event in resp.get('events', []):
+                    comp = event['competitions'][0]
+                    h_team = comp['competitors'][0]['team']['displayName']
+                    a_team = comp['competitors'][1]['team']['displayName']
+                    todos_jogos.append({
+                        "League": nome_liga, "Date": data, "DateStr": data.strftime("%d/%m/%Y"),
+                        "Home": h_team, "Away": a_team, "GOLS_HOME": np.nan, "GOLS_AWAY": np.nan
+                    })
             except: continue
-    return pd.DataFrame(eventos_futuros)
+    return pd.DataFrame(todos_jogos)
 
-# Lógica de Cálculo de Probabilidade (Dixon-Coles Simplificado)
-def calcular_dc(h_team, a_team):
-    # Aqui entra sua lógica de força baseada em gols médios
-    # Como uma base fixa para o cálculo:
-    xg_home = 1.45  # Você pode substituir pelo histórico extraído
-    xg_away = 1.10
-    
-    dist_h = poisson.pmf(np.arange(5), xg_home)
-    dist_a = poisson.pmf(np.arange(5), xg_away)
-    matriz = np.outer(dist_h, dist_a)
-    
-    return {
-        "Casa": np.sum(np.tril(matriz, -1)) * 100,
-        "Empate": np.sum(np.diag(matriz)) * 100,
-        "Fora": np.sum(np.triu(matriz, 1)) * 100
-    }
+# Interface Principal
+st.title("📊 Scanner Profissional - Freed Cesar")
+df = carregar_dados_online()
 
-# Interface
-st.title("📊 LiveScanner Pro - Motor de Análise 2026")
-df = obter_dados_estruturados()
+# Filtro de Liga no topo para organizar a tela
+liga_selecionada = st.selectbox("Selecione a Liga para Análise:", list(LIGAS_MAPA.keys()))
+df_filtrado = df[df['League'] == liga_selecionada]
 
-if not df.empty:
-    data_sel = st.selectbox("Selecione a Data:", sorted(df['Data'].unique()))
-    liga_sel = st.selectbox("Selecione a Liga:", df[df['Data']==data_sel]['Liga'].unique())
-    
-    jogos = df[(df['Data']==data_sel) & (df['Liga']==liga_sel)]
-    
-    for _, row in jogos.iterrows():
-        probs = calcular_dc(row['Home'], row['Away'])
-        st.info(f"⚽ {row['Home']} vs {row['Away']}")
-        st.write(f"Projeção: Casa {probs['Casa']:.1f}% | Empate {probs['Empate']:.1f}% | Fora {probs['Fora']:.1f}%")
+if not df_filtrado.empty:
+    st.write(f"Analisando {len(df_filtrado)} eventos para {liga_selecionada}...")
+    # (A lógica de cálculo Dixon-Coles que você já possui continuaria aqui abaixo)
 else:
-    st.error("Nenhum jogo encontrado para o período.")
+    st.warning("Nenhum jogo encontrado para esta liga nos próximos 14 dias.")
