@@ -76,14 +76,15 @@ LIGAS_MAPA = {
 }
 
 # =========================================================
-# MOTOR DE CAPTURA ONLINE MULTI-LIGA COM TRAVA DE RODADA SEQUENCIAL
+# MOTOR DE CAPTURA ONLINE MULTI-LIGA (PADRÃO PLANILHA)
 # =========================================================
 @st.cache_data(ttl=300)
 def carregar_dados_online():
-    todos_jogos_brutos = []
+    todos_jogos = []
+    times_no_dia = set()
     
     for nome_liga, config in LIGAS_MAPA.items():
-        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates=20260101-20261231&limit=500"
+        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates=20260101-20261231&limit=300"
         try:
             response = requests.get(url, timeout=8)
             if response.status_code != 200: continue
@@ -112,6 +113,13 @@ def carregar_dados_online():
                 
                 h_team = str(h_team).strip()
                 a_team = str(a_team).strip()
+                
+                # CONTROLE ANTI-RUÍDO: Um time só pode ter 1 registro de projeção/jogo na mesma data
+                pra_chave_home = f"{date_str_key}_{h_team}"
+                pra_chave_away = f"{date_str_key}_{a_team}"
+                
+                if pra_chave_home in times_no_dia or pra_chave_away in times_no_dia:
+                    continue 
 
                 h_score = np.nan
                 a_score = np.nan
@@ -122,7 +130,7 @@ def carregar_dados_online():
 
                 uid = f"{nome_liga}_{date_str_key}_{h_team}_{a_team}"
 
-                todos_jogos_brutos.append({
+                todos_jogos.append({
                     "UID": uid,
                     "League": nome_liga,
                     "Date": date_raw,
@@ -132,69 +140,33 @@ def carregar_dados_online():
                     "Away": a_team,
                     "GOLS_HOME": h_score,
                     "GOLS_AWAY": a_score,
+                    "Score": f"{h_score}–{a_score}" if not np.isnan(h_score) else "vs",
                     "Status": status_type
                 })
+                
+                # Trava a escala do time no dia caso o confronto seja uma projeção válida (sem resultado)
+                if np.isnan(h_score):
+                    times_no_dia.add(pra_chave_home)
+                    times_no_dia.add(pra_chave_away)
+                    
         except Exception:
             continue
             
-    if not todos_jogos_brutos:
-        return pd.DataFrame()
+    df = pd.DataFrame(todos_jogos)
+    if not df.empty:
+        df["TOTALGOALS"] = df["GOLS_HOME"] + df["GOLS_AWAY"]
+        df = df.drop_duplicates(subset=["UID"], keep='first')
         
-    df_bruto = pd.DataFrame(todos_jogos_brutos)
-    # Ordena tudo cronologicamente para poder calcular a sequência de rodadas real
-    df_bruto = df_bruto.sort_values(by=["League", "Date"]).reset_index(drop=True)
-    
-    # -------------------------------------------------------------------------
-    # TRAVA MATRICIAL: FILTRO SEQUENCIAL DE RODADAS (X -> Y -> Z)
-    # -------------------------------------------------------------------------
-    jogos_validados = []
-    contadores_times = {} # Estrutura: { "Nome da Liga": { "Nome do Time": total_jogos_jogados_ou_validados } }
-
-    for _, linha in df_bruto.iterrows():
-        liga = linha["League"]
-        home = linha["Home"]
-        away = linha["Away"]
-        
-        if liga not in contadores_times:
-            contadores_times[liga] = {}
-            
-        if home not in contadores_times[liga]: contadores_times[liga][home] = 0
-        if away not in contadores_times[liga]: contadores_times[liga][away] = 0
-        
-        # Próxima rodada teórica esperada para cada um dos dois times
-        rodada_esperada_home = contadores_times[liga][home] + 1
-        rodada_esperada_away = contadores_times[liga][away] + 1
-        
-        # Para evitar o efeito sanfona da API (duplicar jogos futuros pulando a sequência),
-        # nós toleramos que times joguem juntos se a diferença entre suas rodadas for de no máximo 1 rodada de atraso/adiantamento.
-        if abs(rodada_esperada_home - rodada_esperada_away) <= 1:
-            # Define o número oficial da rodada para esse confronto
-            rodada_confronto = max(rodada_esperada_home, rodada_esperada_away)
-            
-            # Atualiza os contadores das equipes fixando que eles atingiram essa rodada
-            contadores_times[liga][home] = rodada_confronto
-            contadores_times[liga][away] = rodada_confronto
-            
-            linha_copia = linha.to_dict()
-            linha_copia["Matchday"] = f"Rodada {rodada_confronto}"
-            jogos_validados.append(linha_copia)
-            
-    df_final = pd.DataFrame(jogos_validados)
-    if not df_final.empty:
-        df_final["TOTALGOALS"] = df_final["GOLS_HOME"] + df_final["GOLS_AWAY"]
-        df_final["Score"] = df_final.apply(lambda r: f"{int(r['GOLS_HOME'])}–{int(r['GOLS_AWAY'])}" if not np.isnan(r['GOLS_HOME']) else "vs", axis=1)
-        df_final = df_final.drop_duplicates(subset=["UID"], keep='first')
-        
-    return df_final
+    return df
 
 df = carregar_dados_online()
 
 if df.empty:
-    st.error("Nenhum dado válido pôde ser mapeado sequencialmente através das APIs neste momento.")
+    st.error("Nenhum dado pôde ser coletado das APIs online neste momento.")
     st.stop()
 
 # =========================================================
-# SEPARAÇÃO DINÂMICA INTEGRAL 
+# SEPARAÇÃO DINÂMICA INTEGRAL (LÓGICA DA PLANILHA OFFLINE)
 # =========================================================
 df_future = df[df["GOLS_HOME"].isna()].copy()
 df_hist = df[df["GOLS_HOME"].notna()].copy()
@@ -281,7 +253,6 @@ if not df_future.empty:
         home = r["Home"]
         away = r["Away"]
         liga_corrente = r["League"]
-        rodada_rotulo = r["Matchday"]
 
         df_hist_liga = df_hist[df_hist["League"] == liga_corrente]
         
@@ -329,7 +300,6 @@ if not df_future.empty:
             "RawDate": r["Date"],
             "Date": r["DateStr"], 
             "Time": r["Time"],
-            "Matchday": rodada_rotulo,
             "Home": home, 
             "Away": away, 
             "League": liga_corrente,
@@ -349,6 +319,7 @@ if not df_future.empty:
 if saida:
     df_proj = pd.DataFrame(saida)
     
+    # Ordena as datas de forma puramente cronológica no seletor do painel
     datas_disponiveis = sorted(df_proj["Date"].unique(), key=lambda x: pd.to_datetime(x, format="%d/%m/%Y"))
     
     if datas_disponiveis:
@@ -356,13 +327,14 @@ if saida:
         with col_sel:
             data_selecionada = st.selectbox("🎯 Filtrar Rodada por Data (Próximos Jogos):", datas_disponiveis)
         
+        # Filtro estrito: Carrega tudo agendado para a data selecionada
         df_proj_filtrado = df_proj[df_proj["Date"] == data_selecionada]
 
         for _, jogo in df_proj_filtrado.iterrows():
             st.markdown(f"""
             <div class="match-box" style="margin-bottom: 0px; border-bottom-left-radius: 0px; border-bottom-right-radius: 0px;">
                 <div class="match-header">
-                    <span>📅 Evento: {jogo['Date']} - {jogo['Time']} | Projeção Quantitativa Dixon-Coles ({jogo['Matchday']})</span>
+                    <span>📅 Evento: {jogo['Date']} - {jogo['Time']} | Projeção Quantitativa Dixon-Coles</span>
                     <span class="league-badge">{jogo['League']}</span>
                 </div>
                 <div class="row" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
