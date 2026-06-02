@@ -83,7 +83,7 @@ def carregar_dados_online():
     todos_jogos = []
     
     for nome_liga, config in LIGAS_MAPA.items():
-        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates=20260101-20261231&limit=300"
+        url = f"https://site.api.api-sports.io/es/soccer/{config['slug']}/scoreboard" if "api-sports" in config.get("slug", "") else f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates=20260101-20261231&limit=300"
         try:
             response = requests.get(url, timeout=8)
             if response.status_code != 200: continue
@@ -109,6 +109,9 @@ def carregar_dados_online():
                 h_team = home_node['team']['displayName'] if home_node['homeAway'] == 'home' else away_node['team']['displayName']
                 a_team = away_node['team']['displayName'] if away_node['homeAway'] == 'away' else home_node['team']['displayName']
                 
+                h_team = str(h_team).strip()
+                a_team = str(a_team).strip()
+                
                 h_score = np.nan
                 a_score = np.nan
                 
@@ -116,13 +119,19 @@ def carregar_dados_online():
                     h_score = int(home_node['score']) if home_node['homeAway'] == 'home' else int(away_node['score'])
                     a_score = int(away_node['score']) if away_node['homeAway'] == 'away' else int(home_node['score'])
 
+                date_str_key = date_raw.strftime("%d/%m/%Y")
+                
+                # Identificador absoluto anti-repetição
+                uid = f"{nome_liga}_{date_str_key}_{h_team}_{a_team}"
+
                 todos_jogos.append({
+                    "UID": uid,
                     "League": nome_liga,
                     "Date": date_raw,
-                    "DateStr": date_raw.strftime("%d/%m/%Y"),
+                    "DateStr": date_str_key,
                     "Time": time_str,
-                    "Home": str(h_team).strip(),
-                    "Away": str(a_team).strip(),
+                    "Home": h_team,
+                    "Away": a_team,
                     "GOLS_HOME": h_score,
                     "GOLS_AWAY": a_score,
                     "Score": f"{h_score}–{a_score}" if not np.isnan(h_score) else "vs",
@@ -134,10 +143,8 @@ def carregar_dados_online():
     df = pd.DataFrame(todos_jogos)
     if not df.empty:
         df["TOTALGOALS"] = df["GOLS_HOME"] + df["GOLS_AWAY"]
-        
-        # CORREÇÃO CRUCIAL: Remove duplicatas considerando a data exata do confronto,
-        # impedindo que jogos válidos de turnos diferentes no mesmo ano sejam excluídos.
-        df = df.drop_duplicates(subset=["League", "DateStr", "Home", "Away"], keep='first')
+        # Elimina repetições baseado na chave única estrita
+        df = df.drop_duplicates(subset=["UID"], keep='first')
         
     return df
 
@@ -147,10 +154,14 @@ if df.empty:
     st.error("Nenhum dado pôde ser coletado das APIs online neste momento.")
     st.stop()
 
-hoje = pd.Timestamp.now().floor('D')
+# =========================================================
+# SEPARAÇÃO DINÂMICA (ESTILO PLANILHA OFFLINE)
+# =========================================================
+# Se não tem gols registrados -> Vai para projeção (df_future)
+df_future = df[df["GOLS_HOME"].isna()].copy()
 
+# Se tem gols registrados -> Vai para histórico base de cálculo (df_hist)
 df_hist = df[df["GOLS_HOME"].notna()].copy()
-df_future = df[(df["GOLS_HOME"].isna()) & (df["Date"] >= hoje)].copy()
 
 # =========================================================
 # FUNÇÕES MATEMÁTICAS E PREDITIVAS
@@ -299,18 +310,18 @@ if not df_future.empty:
 
 if saida:
     df_proj = pd.DataFrame(saida)
-    df_proj_futuro_real = df_proj[df_proj["RawDate"] >= hoje].copy()
     
-    datas_disponiveis = sorted(df_proj_futuro_real["Date"].unique(), key=lambda x: pd.to_datetime(x, format="%d/%m/%Y"))
+    # Ordenação estrita por data real cronológica
+    datas_disponiveis = sorted(df_proj["Date"].unique(), key=lambda x: pd.to_datetime(x, format="%d/%m/%Y"))
     
     if datas_disponiveis:
         col_sel, _ = st.columns([1, 3])
         with col_sel:
             data_selecionada = st.selectbox("🎯 Filtrar Rodada por Data (Próximos Jogos):", datas_disponiveis)
         
-        df_proj_filtrado = df_proj_futuro_real[df_proj_futuro_real["Date"] == data_selecionada]
+        # Filtro Global por Data: Entrega TODOS os jogos agendados daquele dia
+        df_proj_filtrado = df_proj[df_proj["Date"] == data_selecionada]
 
-        # Renderização dos cartões preditivos
         for _, jogo in df_proj_filtrado.iterrows():
             st.markdown(f"""
             <div class="match-box" style="margin-bottom: 0px; border-bottom-left-radius: 0px; border-bottom-right-radius: 0px;">
@@ -357,7 +368,6 @@ if saida:
         confrontos = df_proj_filtrado["Home"] + " vs " + df_proj_filtrado["Away"]
         bars = ax.bar(confrontos, df_proj_filtrado["Expected Goals"], color='#06B6D4', edgecolor='#0891B2', alpha=0.85, width=0.35)
         
-        # Média calculada dinamicamente com base em todos os confrontos exibidos na tela
         media_liga = df_proj_filtrado["Expected Goals"].mean() if not df_proj_filtrado.empty else 2.5
             
         ax.axhline(media_liga, color='#F43F5E', linestyle='--', linewidth=1.5, label=f'Média de xG Projetada para o Dia: {media_liga:.2f}')
@@ -382,12 +392,12 @@ if saida:
         plt.tight_layout()
         st.pyplot(fig)
     else:
-        st.info("Buscando tabelas atualizadas. Caso as ligas não possuam rodadas futuras agendadas na API da ESPN nas próximas horas, elas serão exibidas assim que o calendário for publicado.")
+        st.info("Buscando tabelas atualizadas nas APIs online.")
 else:
     st.info("Nenhum confronto futuro sem resultado foi retornado pela API neste momento.")
 
 # =========================================================
-# CENTRAL DE LIQUIDEZ E BANCO HISTÓRICO ONLINE (SÓ MÉTRICAS)
+# CENTRAL DE LIQUIDEZ (SÓ CARTÕES DE MÉTRICAS)
 # =========================================================
 st.markdown("---")
 with st.expander("🗂️ Central de Liquidez e Banco de Dados Histórico Online"):
