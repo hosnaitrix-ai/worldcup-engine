@@ -71,7 +71,7 @@ LIGAS_MAPA = {
 }
 
 # =========================================================
-# MOTOR DE CAPTURA ONLINE MULTI-LIGA (FILTRADO & CORRIGIDO)
+# MOTOR DE CAPTURA ONLINE MULTI-LIGA (CORRIGIDO E SEGURO)
 # =========================================================
 @st.cache_data(ttl=300)
 def carregar_dados_online():
@@ -87,14 +87,13 @@ def carregar_dados_online():
             for event in data.get('events', []):
                 status_type = event['status']['type']['name']
                 
-                # Captura em formato data pura UTC
+                # Captura data pura UTC
                 date_utc = pd.to_datetime(event['date']).tz_localize(None)
                 
-                # IDENTIFICAÇÃO DE HORÁRIO PROVISÓRIO (04:00 UTC / 01:00 BRST)
-                # Se for horário padrão provisório da API, marcamos como pendente de confirmação da CBF
+                # IDENTIFICAÇÃO DE HORÁRIO PROVISÓRIO (04:00 UTC)
                 if date_utc.hour == 4 and date_utc.minute == 0:
                     is_time_confirmed = False
-                    date_raw = date_utc - pd.Timedelta(hours=3) # Mantém no dia correto estimado
+                    date_raw = date_utc - pd.Timedelta(hours=3)
                     time_str = "A definir"
                 else:
                     is_time_confirmed = True
@@ -133,8 +132,11 @@ def carregar_dados_online():
     df = pd.DataFrame(todos_jogos)
     if not df.empty:
         df["TOTALGOALS"] = df["GOLS_HOME"] + df["GOLS_AWAY"]
-        # PROTEÇÃO ABSOLUTA: Elimina duplicidades focando nos times e liga
-        df = df.drop_duplicates(subset=["Home", "Away", "League"], keep='first')
+        # Ordena por data de forma ascendente
+        df = df.sort_values(by="Date", ascending=True)
+        # CRITÉRIO SEGURO: Garante apenas um confronto por mando de campo.
+        # keep='last' força o sistema a pegar a última atualização/remarcação da API (Data correta)
+        df = df.drop_duplicates(subset=["Home", "Away", "League"], keep='last')
     return df
 
 df = carregar_dados_online()
@@ -143,7 +145,6 @@ if df.empty:
     st.error("Nenhum dado pôde ser coletado das APIs online neste momento.")
     st.stop()
 
-# Ajuste temporal local baseado em hoje
 hoje = pd.Timestamp.now().floor('D')
 
 df_hist = df[df["GOLS_HOME"].notna()].copy()
@@ -295,7 +296,6 @@ if not df_future.empty:
         })
 
     df_proj = pd.DataFrame(saida)
-    # Filtra mantendo apenas exibições futuras em relação ao dia corrente
     df_proj_futuro_real = df_proj[df_proj["RawDate"] >= hoje].copy()
     
     datas_disponiveis = sorted(df_proj_futuro_real["Date"].unique(), key=lambda x: pd.to_datetime(x, format="%d/%m/%Y"))
