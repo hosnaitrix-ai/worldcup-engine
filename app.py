@@ -71,7 +71,7 @@ LIGAS_MAPA = {
 }
 
 # =========================================================
-# MOTOR DE CAPTURA ONLINE MULTI-LIGA
+# MOTOR DE CAPTURA ONLINE MULTI-LIGA (FILTRADO & CORRIGIDO)
 # =========================================================
 @st.cache_data(ttl=300)
 def carregar_dados_online():
@@ -87,8 +87,19 @@ def carregar_dados_online():
             for event in data.get('events', []):
                 status_type = event['status']['type']['name']
                 
-                # Captura em formato data pura e subtrai 3 horas para ajustar o fuso UTC para o de Brasília (UTC-3)
-                date_raw = pd.to_datetime(event['date']).tz_localize(None) - pd.Timedelta(hours=3)
+                # Captura em formato data pura UTC
+                date_utc = pd.to_datetime(event['date']).tz_localize(None)
+                
+                # IDENTIFICAÇÃO DE HORÁRIO PROVISÓRIO (04:00 UTC / 01:00 BRST)
+                # Se for horário padrão provisório da API, marcamos como pendente de confirmação da CBF
+                if date_utc.hour == 4 and date_utc.minute == 0:
+                    is_time_confirmed = False
+                    date_raw = date_utc - pd.Timedelta(hours=3) # Mantém no dia correto estimado
+                    time_str = "A definir"
+                else:
+                    is_time_confirmed = True
+                    date_raw = date_utc - pd.Timedelta(hours=3)
+                    time_str = date_raw.strftime("%H:%M")
                 
                 comp = event['competitions'][0]
                 home_node = comp['competitors'][0]
@@ -108,12 +119,13 @@ def carregar_dados_online():
                     "League": nome_liga,
                     "Date": date_raw,
                     "DateStr": date_raw.strftime("%d/%m/%Y"),
-                    "Time": date_raw.strftime("%H:%M"),
+                    "Time": time_str,
                     "Home": str(h_team).strip(),
                     "Away": str(a_team).strip(),
                     "GOLS_HOME": h_score,
                     "GOLS_AWAY": a_score,
-                    "Score": f"{h_score}–{a_score}" if not np.isnan(h_score) else "vs"
+                    "Score": f"{h_score}–{a_score}" if not np.isnan(h_score) else "vs",
+                    "Confirmed": is_time_confirmed
                 })
         except Exception:
             continue
@@ -121,7 +133,8 @@ def carregar_dados_online():
     df = pd.DataFrame(todos_jogos)
     if not df.empty:
         df["TOTALGOALS"] = df["GOLS_HOME"] + df["GOLS_AWAY"]
-        df = df.drop_duplicates(subset=["DateStr", "Home", "Away"])
+        # PROTEÇÃO ABSOLUTA: Elimina duplicidades focando nos times e liga
+        df = df.drop_duplicates(subset=["Home", "Away", "League"], keep='first')
     return df
 
 df = carregar_dados_online()
@@ -130,11 +143,11 @@ if df.empty:
     st.error("Nenhum dado pôde ser coletado das APIs online neste momento.")
     st.stop()
 
-# Ajuste temporal local usando a data de hoje normalizada para o fuso brasileiro corrigido
+# Ajuste temporal local baseado em hoje
 hoje = pd.Timestamp.now().floor('D')
 
 df_hist = df[df["GOLS_HOME"].notna()].copy()
-df_future = df[(df["GOLS_HOME"].isna()) & (df["Date"] >= hoje)].copy()
+df_future = df[df["GOLS_HOME"].isna()].copy()
 
 # =========================================================
 # FUNÇÕES MATEMÁTICAS E PREDITIVAS
@@ -282,6 +295,7 @@ if not df_future.empty:
         })
 
     df_proj = pd.DataFrame(saida)
+    # Filtra mantendo apenas exibições futuras em relação ao dia corrente
     df_proj_futuro_real = df_proj[df_proj["RawDate"] >= hoje].copy()
     
     datas_disponiveis = sorted(df_proj_futuro_real["Date"].unique(), key=lambda x: pd.to_datetime(x, format="%d/%m/%Y"))
@@ -297,7 +311,7 @@ if not df_future.empty:
             st.markdown(f"""
             <div class="match-box" style="margin-bottom: 0px; border-bottom-left-radius: 0px; border-bottom-right-radius: 0px;">
                 <div class="match-header">
-                    <span>📅 Evento: {jogo['Date']} - {jogo['Time']} | Projeção Quantitativa Dixon-Coles</span>
+                    <span>📅 Evento: {jogo['Date']} - Horário: {jogo['Time']} | Projeção Quantitativa Dixon-Coles</span>
                     <span class="league-badge">{jogo['League']}</span>
                 </div>
                 <div class="row" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
@@ -369,7 +383,7 @@ if not df_future.empty:
         plt.tight_layout()
         st.pyplot(fig)
     else:
-        st.info("Buscando tabelas atualizadas. Caso as ligas não possuam rodadas futuras agendadas na API da ESPN nas próximas horas, elas serão exibidas assim que o calendário for publicado.")
+        st.info("Buscando tabelas atualizadas nas APIs online...")
 else:
     st.info("Nenhum confronto futuro sem resultado foi retornado pela API neste momento.")
 
@@ -396,6 +410,5 @@ with st.expander("🗂️ Central de Liquidez e Banco de Dados Histórico Online
 
     st.markdown("<br>", unsafe_allow_html=True)
     if not df_hist_view.empty:
-        # CORREÇÃO AQUI: Primeiro ordenamos por 'Date', depois recortamos as colunas de visualização
         df_sorted_view = df_hist_view.sort_values(by="Date", ascending=False)
         st.dataframe(df_sorted_view[["DateStr", "Time", "Home", "Score", "Away", "TOTALGOALS", "League"]], use_container_width=True)
