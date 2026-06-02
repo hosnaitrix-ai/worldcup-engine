@@ -76,14 +76,13 @@ LIGAS_MAPA = {
 }
 
 # =========================================================
-# MOTOR DE CAPTURA ONLINE MULTI-LIGA DEFINITIVO
+# MOTOR DE CAPTURA ONLINE CORRIGIDO (SINCRONIZAÇÃO DE DATA)
 # =========================================================
 @st.cache_data(ttl=300)
 def carregar_dados_online():
     todos_jogos = []
     
     for nome_liga, config in LIGAS_MAPA.items():
-        # Trava anti-duplicados estrita por liga para não colidir com outros campeonatos
         times_no_dia_da_liga = set()
         
         url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates=20260101-20261231&limit=300"
@@ -95,18 +94,18 @@ def carregar_dados_online():
             for event in data.get('events', []):
                 status_type = event['status']['type']['name']
                 
-                # Tratamento de data e conversão para fuso local
+                # Tratamento preciso: captura a data do fuso de Brasília para sincronizar o seletor
                 date_utc = pd.to_datetime(event['date']).tz_convert('UTC')
-                if date_utc.hour in [0, 4] and date_utc.minute == 0:
-                    date_raw = date_utc.replace(tzinfo=None)
-                    time_str = "A definir"
-                else:
-                    date_local = date_utc.tz_convert('America/Sao_Paulo')
-                    date_raw = date_local.replace(tzinfo=None)
-                    time_str = date_raw.strftime("%H:%M")
+                date_local = date_utc.tz_convert('America/Sao_Paulo')
+                date_raw = date_local.replace(tzinfo=None)
                 
+                # Força formato padrão estrito DD/MM/AAAA para evitar quebras entre ligas internacionais
                 date_str_key = date_raw.strftime("%d/%m/%Y")
+                time_str = date_raw.strftime("%H:%M")
                 
+                if date_utc.hour in [0, 4] and date_utc.minute == 0:
+                    time_str = "A definir"
+
                 comp = event['competitions'][0]
                 home_node = comp['competitors'][0]
                 away_node = comp['competitors'][1]
@@ -120,7 +119,7 @@ def carregar_dados_online():
                 if not h_team or not a_team or h_team == a_team:
                     continue
 
-                # Trava cirúrgica de repetição de times na mesma data dentro daquela liga específica
+                # Evita repetição duplicada de times na mesma data dentro da liga corrente
                 confronto_chave_home = f"{date_str_key}_{h_team}"
                 confronto_chave_away = f"{date_str_key}_{a_team}"
                 
@@ -131,7 +130,6 @@ def carregar_dados_online():
                     h_score = int(home_node['score']) if home_node['homeAway'] == 'home' else int(away_node['score'])
                     a_score = int(away_node['score']) if away_node['homeAway'] == 'away' else int(home_node['score'])
 
-                # Para linhas destinadas a Projeções (sem resultado computado)
                 if np.isnan(h_score):
                     if confronto_chave_home in times_no_dia_da_liga or confronto_chave_away in times_no_dia_da_liga:
                         continue 
@@ -139,7 +137,6 @@ def carregar_dados_online():
                     times_no_dia_da_liga.add(confronto_chave_home)
                     times_no_dia_da_liga.add(confronto_chave_away)
 
-                # UID estruturado para remoção de redundância no DataFrame final
                 uid = f"{nome_liga}_{date_str_key}_{h_team}_vs_{a_team}".replace(" ", "_")
 
                 todos_jogos.append({
@@ -162,7 +159,6 @@ def carregar_dados_online():
     df = pd.DataFrame(todos_jogos)
     if not df.empty:
         df["TOTALGOALS"] = df["GOLS_HOME"] + df["GOLS_AWAY"]
-        # Limpa qualquer ID duplicado ou nós repetidos da API do Pandas
         df = df.drop_duplicates(subset=["UID"], keep='first')
         
     return df
@@ -174,7 +170,7 @@ if df.empty:
     st.stop()
 
 # =========================================================
-# SEPARAÇÃO DINÂMICA INTEGRAL (LÓGICA DA PLANILHA OFFLINE)
+# SEPARAÇÃO DINÂMICA INTEGRAL 
 # =========================================================
 df_future = df[df["GOLS_HOME"].isna()].copy()
 df_hist = df[df["GOLS_HOME"].notna()].copy()
@@ -327,7 +323,7 @@ if not df_future.empty:
 if saida:
     df_proj = pd.DataFrame(saida)
     
-    # Ordenação cronológica real das datas no seletor
+    # Ordenação cronológica rigorosa das datas
     datas_disponiveis = sorted(df_proj["Date"].unique(), key=lambda x: pd.to_datetime(x, format="%d/%m/%Y"))
     
     if datas_disponiveis:
