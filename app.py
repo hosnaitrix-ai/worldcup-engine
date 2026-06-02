@@ -3,22 +3,27 @@ import requests
 import streamlit as st
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 from scipy.stats import poisson
 
-# =========================
+# =========================================================
 # CONFIG
-# =========================
+# =========================================================
 if sys.platform == 'win32':
     import asyncio
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-st.set_page_config(page_title="LiveScanner Pro", layout="wide")
+st.set_page_config(
+    page_title="LiveScanner Pro - ESPN Trading Engine",
+    page_icon="⚡",
+    layout="wide"
+)
 
-st.title("📊 LiveScanner Pro - ESPN MODE")
+st.title("📊 LIVE SCANNER PRO | ESPN TRADING ENGINE")
 
-# =========================
-# LIGAS PERMITIDAS (FILTRO OBRIGATÓRIO)
-# =========================
+# =========================================================
+# LIGAS MAPA (REGRAS DO MODELO)
+# =========================================================
 LIGAS_MAPA = {
     "Brasileirão - Série A": {"slug": "bra.1", "base_home": 1.45, "base_away": 1.05},
     "Brasileirão - Série B": {"slug": "bra.2", "base_home": 1.35, "base_away": 0.95},
@@ -39,9 +44,10 @@ LIGAS_MAPA = {
     "Copa do Mundo 2026": {"slug": "fifa.world.cup", "base_home": 1.52, "base_away": 1.18}
 }
 
-# =========================
-# ESPN LOADER (SÓ LIGAS DO MAPA)
-# =========================
+# =========================================================
+# ESPN DATA ENGINE (FILTRADO POR LIGAS DO MAPA)
+# =========================================================
+@st.cache_data(ttl=3600)
 def carregar_dados_online():
 
     jogos = []
@@ -79,24 +85,25 @@ def carregar_dados_online():
 
     return pd.DataFrame(jogos)
 
-# =========================
-# PESO TEMPORAL
-# =========================
+df = carregar_dados_online()
+
+df_hist = df[df["GOLS_HOME"].notna()]
+df_future = df[df["GOLS_HOME"].isna()]
+
+# =========================================================
+# FUNÇÕES MODELO
+# =========================================================
 def peso_temporal(data_jogo, data_ref, xi=0.0065):
     dias = (data_ref - data_jogo).dt.days
     return np.exp(-xi * dias)
 
-# =========================
-# FORÇA DO TIME (VERSÃO FINAL)
-# =========================
-def forca_time(team, side, data_ref, liga, l_home, l_away, df_hist):
+def forca_time(team, side, data_ref, liga, l_home, l_away):
 
-    jogos_liga = df_hist[df_hist["League"] == liga]
-
-    t = jogos_liga[jogos_liga["Home"] == team] if side == "home" else jogos_liga[jogos_liga["Away"] == team]
+    df_liga = df_hist[df_hist["League"] == liga]
+    t = df_liga[df_liga["Home"] == team] if side == "home" else df_liga[df_liga["Away"] == team]
 
     if len(t) < 3:
-        t = jogos_liga
+        t = df_liga
 
     if len(t) == 0:
         return 1.0, 1.0
@@ -117,9 +124,6 @@ def forca_time(team, side, data_ref, liga, l_home, l_away, df_hist):
 
     return np.clip(ataque, 0.5, 2.2), np.clip(defesa, 0.5, 2.2)
 
-# =========================
-# DIXON COLES
-# =========================
 def dixon_coles(lh, la, rho=-0.1):
     p_h = poisson.pmf(np.arange(11), lh)
     p_a = poisson.pmf(np.arange(11), la)
@@ -132,68 +136,50 @@ def dixon_coles(lh, la, rho=-0.1):
 
     return m / m.sum()
 
-# =========================
-# VALUE MODEL
-# =========================
-def detectar_melhor_valor(hw, d, aw, o15, o25, btts, xg, home, away):
+# =========================================================
+# VALUE ENGINE
+# =========================================================
+def detectar_melhor_valor(hw, d, aw, o15, o25, u35, xg, home, away):
 
-    if hw > 65:
-        return f"🔥 Vitória {home}"
+    if hw > 62:
+        return f"🔥 Mandante Forte: {home}"
 
-    if aw > 48:
-        return f"🚀 Vitória {away}"
+    if aw > 45:
+        return f"🚀 Visitante Forte: {away}"
 
-    if o25 > 60 and xg > 2.4:
-        return "⚽ Over 2.5"
+    if o25 > 58 and xg > 2.5:
+        return "⚽ Over 2.5 Value"
 
-    if btts > 60:
-        return "🎯 BTTS SIM"
+    if d > 30 and u35 > 78:
+        return "🔒 Jogo Travado"
 
-    if (aw + d) > 70:
+    if (aw + d) > 65:
         return f"🛡️ Dupla Chance {away}/Empate"
 
-    if o15 > 80:
-        return "🛡️ Over 1.5"
+    return "⚖️ Sem Valor"
 
-    return "⚖️ Sem Value"
-
-# =========================
-# DADOS ESPN
-# =========================
-df = carregar_dados_online()
-
-df_hist = df[df["GOLS_HOME"].notna()]
-df_future = df[df["GOLS_HOME"].isna()]
-
+# =========================================================
+# PIPELINE
+# =========================================================
 saida = []
 
-# =========================
-# PROCESSAMENTO
-# =========================
 for _, r in df_future.iterrows():
 
     liga = r["League"]
-
-    base_home = LIGAS_MAPA[liga]["base_home"]
-    base_away = LIGAS_MAPA[liga]["base_away"]
+    base = LIGAS_MAPA[liga]
 
     l_h = df_hist[df_hist["League"] == liga]["GOLS_HOME"].mean()
     l_a = df_hist[df_hist["League"] == liga]["GOLS_AWAY"].mean()
 
     if pd.isna(l_h):
-        l_h, l_a = base_home, base_away
+        l_h, l_a = base["base_home"], base["base_away"]
 
-    ah, dh = forca_time(r["Home"], "home", r["Date"], liga, l_h, l_a, df_hist)
-    aa, da = forca_time(r["Away"], "away", r["Date"], liga, l_h, l_a, df_hist)
+    ah, dh = forca_time(r["Home"], "home", r["Date"], liga, l_h, l_a)
+    aa, da = forca_time(r["Away"], "away", r["Date"], liga, l_h, l_a)
 
-    # =========================
-    # xG (COM SUAVIZAÇÃO)
-    # =========================
-    xg_h = (ah * da * base_home) * 0.7 + base_home * 0.3
-    xg_a = (aa * dh * base_away) * 0.7 + base_away * 0.3
-
-    xg_h = np.clip(xg_h, 0.2, 2.6)
-    xg_a = np.clip(xg_a, 0.2, 2.4)
+    # xG CALIBRADO
+    xg_h = (ah * da * base["base_home"]) * 0.7 + base["base_home"] * 0.3
+    xg_a = (aa * dh * base["base_away"]) * 0.7 + base["base_away"] * 0.3
 
     p = dixon_coles(xg_h, xg_a)
 
@@ -208,38 +194,41 @@ for _, r in df_future.iterrows():
 
     o15 = (1 - gols[0] - gols[1]) * 100
     o25 = (1 - np.sum(gols[:3])) * 100
+    u35 = np.sum(gols[:4]) * 100
 
-    btts = (1 - p[0, :].sum() - p[:, 0].sum() + p[0, 0]) * 100
+    xg_total = xg_h + xg_a
 
-    placar = np.unravel_index(np.argmax(p), p.shape)
-    placar_correto = f"{placar[0]}x{placar[1]}"
-
-    val = detectar_melhor_valor(hw, d, aw, o15, o25, btts, xg_h + xg_a, r["Home"], r["Away"])
+    val = detectar_melhor_valor(hw, d, aw, o15, o25, u35, xg_total, r["Home"], r["Away"])
 
     saida.append({
         "Home": r["Home"],
         "Away": r["Away"],
         "League": liga,
         "Value": val,
-        "xG": round(xg_h + xg_a, 2),
-        "BTTS %": round(btts, 1),
-        "Placar Provável": placar_correto
+        "xG": round(xg_total, 2),
+        "Home%": round(hw, 1),
+        "Draw%": round(d, 1),
+        "Away%": round(aw, 1),
+        "Over2.5%": round(o25, 1)
     })
 
-# =========================
-# UI
-# =========================
+# =========================================================
+# UI SIMPLES + TRADING
+# =========================================================
+st.subheader("📊 Scanner de Jogos (ESPN + Trading Model)")
+
 if saida:
     for j in saida:
         st.markdown(f"""
-        <div style="padding:15px;border:1px solid #ddd;border-radius:10px;margin-bottom:10px">
+        <div style="padding:15px;border-radius:10px;border:1px solid #ddd;margin-bottom:10px">
             <b>{j['Home']} vs {j['Away']}</b><br>
-            <b>{j['League']}</b><br><br>
-            <span style="background:#4F46E5;color:#fff;padding:5px 10px;border-radius:6px">
-                {j['Value']}
-            </span>
-            <br><br>
-            📊 xG: {j['xG']} | 🎯 BTTS: {j['BTTS %']}% | ⚽ {j['Placar Provável']}
+            <small>{j['League']}</small><br><br>
+
+            <b>{j['Value']}</b><br><br>
+
+            📊 xG: {j['xG']}<br>
+            🏠 {j['Home%']}% | 🤝 {j['Draw%']}% | 🚀 {j['Away%']}%<br>
+            ⚽ Over 2.5: {j['Over2.5%']}%
         </div>
         """, unsafe_allow_html=True)
 else:
