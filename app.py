@@ -81,110 +81,81 @@ LIGAS_MAPA = {
 @st.cache_data(ttl=300)
 def carregar_dados_online():
     todos_jogos = []
-    
-    # Gerar uma janela de varredura estrita dia-a-dia para evitar truncamento de paginação na API
+
     hoje = pd.Timestamp.now().normalize()
-    datas_alvo = [hoje + pd.Timedelta(days=i) for i in range(15)]
-    
-    # 1. CAPTURA DOS JOGOS PROJETADOS (PRÓXIMOS 14 DIAS) - REQUISIÇÃO POR DIA
+
+    # 🔥 ampliado para garantir retorno (ESPN é inconsistente)
+    datas_alvo = [hoje + pd.Timedelta(days=i) for i in range(-2, 20)]
+
     for data_atual in datas_alvo:
         date_param = data_atual.strftime("%Y%m%d")
         date_str_key = data_atual.strftime("%d/%m/%Y")
-        
-        for nome_liga, config in LIGAS_MAPA.items():
-            times_no_dia_da_liga = set()
-            url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates={date_param}&limit=100"
-            
-            try:
-                response = requests.get(url, timeout=5)
-                if response.status_code != 200: continue
-                data = response.json()
-                
-                for event in data.get('events', []):
-                    status_type = event['status']['type']['name']
-                    
-                    # Normaliza horário local de Brasília
-                    date_utc = pd.to_datetime(event['date']).tz_convert('UTC')
-                    date_local = date_utc.tz_convert('America/Sao_Paulo')
-                    date_raw = date_local.replace(tzinfo=None)
-                    time_str = date_raw.strftime("%H:%M")
-                    
-                    if date_utc.hour in [0, 4] and date_utc.minute == 0:
-                        time_str = "A definir"
 
+        for nome_liga, config in LIGAS_MAPA.items():
+            url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?limit=200"
+
+            try:
+                response = requests.get(url, timeout=6)
+                if response.status_code != 200:
+                    continue
+
+                data = response.json()
+
+                for event in data.get('events', []):
                     comp = event['competitions'][0]
+
                     home_node = comp['competitors'][0]
                     away_node = comp['competitors'][1]
-                    
-                    h_team = home_node['team']['displayName'] if home_node['homeAway'] == 'home' else away_node['team']['displayName']
-                    a_team = away_node['team']['displayName'] if away_node['homeAway'] == 'away' else home_node['team']['displayName']
-                    
-                    h_team = str(h_team).strip()
-                    a_team = str(a_team).strip()
-                    
-                    if not h_team or not a_team or h_team == a_team: continue
 
-                    confronto_chave_home = f"{date_str_key}_{h_team}"
-                    confronto_chave_away = f"{date_str_key}_{a_team}"
-                    
-                    if confronto_chave_home in times_no_dia_da_liga or confronto_chave_away in times_no_dia_da_liga:
-                        continue 
-                    
-                    times_no_dia_da_liga.add(confronto_chave_home)
-                    times_no_dia_da_liga.add(confronto_chave_away)
+                    h_team = str(home_node['team']['displayName']).strip()
+                    a_team = str(away_node['team']['displayName']).strip()
 
-                    uid = f"{nome_liga}_{date_str_key}_{h_team}_vs_{a_team}".replace(" ", "_")
+                    if not h_team or not a_team or h_team == a_team:
+                        continue
+
+                    status_type = event['status']['type']['name']
+
+                    # 🔥 data real do jogo
+                    date_utc = pd.to_datetime(event['date'], utc=True)
+                    date_local = date_utc.tz_convert('America/Sao_Paulo')
+                    date_raw = date_local.replace(tzinfo=None)
+
+                    time_str = date_raw.strftime("%H:%M")
+
+                    h_score = np.nan
+                    a_score = np.nan
+
+                    # 🔥 só preenche histórico quando finalizado
+                    if status_type in ["STATUS_FULL_TIME", "STATUS_FINAL"]:
+                        h_score = int(home_node['score'])
+                        a_score = int(away_node['score'])
+
+                    uid = f"{nome_liga}_{date_raw}_{h_team}_{a_team}".replace(" ", "_")
 
                     todos_jogos.append({
-                        "UID": uid, "League": nome_liga, "Date": date_raw, "DateStr": date_str_key,
-                        "Time": time_str, "Home": h_team, "Away": a_team,
-                        "GOLS_HOME": np.nan, "GOLS_AWAY": np.nan, "Score": "vs", "Status": status_type
+                        "UID": uid,
+                        "League": nome_liga,
+                        "Date": date_raw,
+                        "DateStr": date_raw.strftime("%d/%m/%Y"),
+                        "Time": time_str,
+                        "Home": h_team,
+                        "Away": a_team,
+                        "GOLS_HOME": h_score,
+                        "GOLS_AWAY": a_score,
+                        "Score": f"{h_score}–{a_score}" if not np.isnan(h_score) else "vs",
+                        "Status": status_type
                     })
+
             except Exception:
                 continue
 
-    # 2. CAPTURA DA BASE HISTÓRICA DE RETROSPECTO (MÉDIAS DE GOLS E Dixon-Coles)
-    # Pega uma janela fixa retroativa para preencher o df_hist e alimentar a matemática
-    url_hist = "20260101-20260601"
-    for nome_liga, config in LIGAS_MAPA.items():
-        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates={url_hist}&limit=300"
-        try:
-            response = requests.get(url, timeout=6)
-            if response.status_code != 200: continue
-            data = response.json()
-            for event in data.get('events', []):
-                status_type = event['status']['type']['name']
-                if status_type not in ["STATUS_FULL_TIME", "STATUS_FINAL"]: continue
-                
-                date_utc = pd.to_datetime(event['date']).tz_convert('UTC')
-                date_local = date_utc.tz_convert('America/Sao_Paulo')
-                date_raw = date_local.replace(tzinfo=None)
-                
-                comp = event['competitions'][0]
-                home_node = comp['competitors'][0]
-                away_node = comp['competitors'][1]
-                
-                h_team = str(home_node['team']['displayName']).strip() if home_node['homeAway'] == 'home' else str(away_node['team']['displayName']).strip()
-                a_team = str(away_node['team']['displayName']).strip() if away_node['homeAway'] == 'away' else str(home_node['team']['displayName']).strip()
-                
-                h_score = int(home_node['score']) if home_node['homeAway'] == 'home' else int(away_node['score'])
-                a_score = int(away_node['score']) if away_node['homeAway'] == 'away' else int(home_node['score'])
-                
-                uid = f"HIST_{nome_liga}_{date_raw.strftime('%d%m%Y')}_{h_team}_vs_{a_team}".replace(" ", "_")
-                todos_jogos.append({
-                    "UID": uid, "League": nome_liga, "Date": date_raw, "DateStr": date_raw.strftime("%d/%m/%Y"),
-                    "Time": date_raw.strftime("%H:%M"), "Home": h_team, "Away": a_team,
-                    "GOLS_HOME": h_score, "GOLS_AWAY": a_score, "Score": f"{h_score}–{a_score}", "Status": status_type
-                })
-        except Exception:
-            continue
-
     df = pd.DataFrame(todos_jogos)
+
     if not df.empty:
         df["TOTALGOALS"] = df["GOLS_HOME"] + df["GOLS_AWAY"]
-        df = df.drop_duplicates(subset=["UID"], keep='first')
-    return df
+        df = df.drop_duplicates(subset=["UID"], keep="first")
 
+    return df
 df = carregar_dados_online()
 
 if df.empty:
