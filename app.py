@@ -77,20 +77,26 @@ def carregar_dados_online():
     todos_jogos = []
     
     hoje = pd.Timestamp.now().normalize()
-    datas_alvo = [hoje + pd.Timedelta(days=i) for i in range(15)]
+    # Ajustado para 10 dias conforme solicitado
+    datas_alvo = [hoje + pd.Timedelta(days=i) for i in range(10)]
     
-    # 1. CAPTURA DOS JOGOS PROJETADOS (PRÓXIMOS 14 DIAS)
+    # 1. CAPTURA DOS JOGOS PROJETADOS (PRÓXIMOS 10 DIAS)
     for data_atual in datas_alvo:
         date_param = data_atual.strftime("%Y%m%d")
         date_str_key = data_atual.strftime("%d/%m/%Y")
         
         for nome_liga, config in LIGAS_MAPA.items():
-            time.sleep(0.5) # Delay crucial para estabilidade da API
+            # Aumentado para 1.2s para evitar bloqueios em massa
+            time.sleep(1.2) 
             url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates={date_param}&limit=1000"
             
             try:
-                response = requests.get(url, timeout=10)
-                if response.status_code != 200: continue
+                headers = {'User-Agent': 'Mozilla/5.0'} # Adicionado header para simular navegador
+                response = requests.get(url, headers=headers, timeout=15)
+                
+                if response.status_code != 200: 
+                    continue
+                    
                 data = response.json()
                 
                 for event in data.get('events', []):
@@ -122,13 +128,15 @@ def carregar_dados_online():
     # 2. CAPTURA DA BASE HISTÓRICA
     url_hist = "20260101-20260601"
     for nome_liga, config in LIGAS_MAPA.items():
-        time.sleep(0.5)
+        time.sleep(1.5) # Delay maior para buscas históricas pesadas
         url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates={url_hist}&limit=1000"
         try:
-            response = requests.get(url, timeout=10)
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            response = requests.get(url, headers=headers, timeout=15)
             if response.status_code != 200: continue
             data = response.json()
             for event in data.get('events', []):
+                # ... (restante do seu código histórico permanece o mesmo)
                 status_type = event['status']['type']['name']
                 if status_type not in ["STATUS_FULL_TIME", "STATUS_FINAL"]: continue
                 
