@@ -86,8 +86,8 @@ def carregar_dados_online():
         date_str_key = data_atual.strftime("%d/%m/%Y")
         
         for nome_liga, config in LIGAS_MAPA.items():
-            # Aumentado para 10.2s para evitar bloqueios em massa
-            time.sleep(1.2) 
+            # Aumentado para 5.2s para evitar bloqueios em massa
+            time.sleep(5.2) 
             url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates={date_param}&limit=1000"
             
             try:
@@ -128,7 +128,7 @@ def carregar_dados_online():
     # 2. CAPTURA DA BASE HISTÓRICA
     url_hist = "20260101-20260601"
     for nome_liga, config in LIGAS_MAPA.items():
-        time.sleep(1.5) # Delay maior para buscas históricas pesadas
+        time.sleep(3.5) # Delay maior para buscas históricas pesadas
         url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates={url_hist}&limit=1000"
         try:
             headers = {'User-Agent': 'Mozilla/5.0'}
