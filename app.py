@@ -11,44 +11,21 @@ if sys.platform == 'win32':
     import asyncio
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-# =========================================================
-# CONFIGURAÇÃO DA PÁGINA & IDENTIDADE VISUAL
-# =========================================================
-st.set_page_config(
-    page_title="LiveScanner Pro - Multi-Liga Online",
-    page_icon="⚡",
-    layout="wide"
-)
+st.set_page_config(page_title="LiveScanner Pro - Multi-Liga Online", page_icon="⚡", layout="wide")
 
 st.markdown("""
     <style>
-    .block-container { padding-top: 1.5rem; padding-bottom: 1.5rem; }
-    h1 { font-weight: 900 !important; color: #0F172A; letter-spacing: -1px; }
-    h3 { font-weight: 700 !important; color: #1E293B; margin-bottom: 0.5rem; }
-    .match-box { background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
-    .match-header { font-size: 12px; color: #64748B; font-weight: 600; text-transform: uppercase; margin-bottom: 0.8rem; border-bottom: 1px solid #F1F5F9; padding-bottom: 4px; display: flex; justify-content: space-between; }
-    .league-badge { background: #F1F5F9; color: #4338CA; padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 11px; }
-    .team-name { font-size: 1.25rem; font-weight: 700; color: #1E293B; }
-    .vs-badge { font-size: 10px; background: #F1F5F9; color: #64748B; padding: 2px 8px; border-radius: 4px; margin: 0 10px; font-weight: bold; }
-    .market-title { font-size: 11px; font-weight: bold; color: #475569; text-transform: uppercase; text-align: center; margin-bottom: 4px; }
-    .odd-box-back { background: #E0F2FE; border: 1px solid #7DD3FC; color: #0369A1; text-align: center; padding: 8px; border-radius: 6px; font-weight: 800; font-size: 15px; }
-    .odd-box-lay { background: #FCE7F3; border: 1px solid #FBCFE8; color: #B91C1C; text-align: center; padding: 8px; border-radius: 6px; font-weight: 800; font-size: 15px; }
-    .odd-box-goals { background: #F0FDF4; border: 1px solid #BBF7D0; color: #166534; text-align: center; padding: 8px; border-radius: 6px; font-weight: 800; font-size: 15px; }
-    .value-badge { background: #4338CA; color: white; padding: 6px 12px; border-radius: 6px; font-weight: 700; font-size: 13px; display: inline-block; }
-    .value-report-box { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px; }
-    .report-topic { font-size: 12px; font-weight: 700; color: #4338CA; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
-    .report-text { font-size: 12.5px; color: #334155; line-height: 1.5; margin-bottom: 4px; }
-    .badge-value { background: #DCFCE7; color: #15803D; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 800; border: 1px solid #BBF7D0; }
+    .block-container { padding-top: 1.5rem; }
+    .match-box { background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 1.5rem; }
+    .odd-box-back { background: #E0F2FE; color: #0369A1; text-align: center; padding: 8px; border-radius: 6px; font-weight: 800; }
+    .odd-box-goals { background: #F0FDF4; color: #166534; text-align: center; padding: 8px; border-radius: 6px; font-weight: 800; }
+    .value-badge { background: #4338CA; color: white; padding: 6px 12px; border-radius: 6px; font-weight: 700; }
     </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<p style="color:#6366F1; font-weight:bold; text-transform:uppercase; font-size:12px; margin-bottom:0;">⚡ LiveScanner & Probability Engine</p>', unsafe_allow_html=True)
-st.title("📊 ANÁLISE DE FUTEBOL - By Freed Cesar")
-st.markdown("---")
+st.title("📊 ANÁLISE DE FUTEBOL - Otimizado")
 
-# =========================================================
-# DICIONÁRIO DE CONFIGURAÇÃO DE LIGAS
-# =========================================================
+# [INSERIR SEU DICIONÁRIO LIGAS_MAPA AQUI]
 LIGAS_MAPA = {
     "Brasileirão - Série A": {"slug": "bra.1", "base_home": 1.45, "base_away": 1.05},
     "Brasileirão - Série B": {"slug": "bra.2", "base_home": 1.35, "base_away": 0.95},
@@ -69,112 +46,81 @@ LIGAS_MAPA = {
     "Copa do Mundo 2026": {"slug": "fifa.world.cup", "base_home": 1.52, "base_away": 1.18}
 }
 
-# =========================================================
-# MOTOR DE CAPTURA COM AJUSTE DE ESTABILIDADE
-# =========================================================
-@st.cache_data(ttl=600) # Aumentei o cache para 10 minutos
-def carregar_dados_online():
-    todos_jogos = []
+def peso_temporal(data_jogo, data_ref, xi=0.0065):
+    dias = (data_ref - data_jogo).dt.days
+    return np.exp(-xi * dias)
+
+def forca_time(team, side, data_ref, liga_jogo, l_home_mean, l_away_mean):
+    if df_hist.empty: return 1.0, 1.0
+    jogos = df_hist[(df_hist["Date"] < data_ref) & (df_hist["League"] == liga_jogo)].copy()
+    t = jogos[jogos["Home"] == team] if side == "home" else jogos[jogos["Away"] == team]
     
-    # Em vez de iterar dias, iteramos ligas. 
-    # A API da ESPN retorna uma janela de jogos ao omitir ou usar range de datas.
-    for nome_liga, config in LIGAS_MAPA.items():
-        time.sleep(2.0) # Delay seguro e eficiente
-        
-        # URL sem o parâmetro "dates" específico, ou usando um range mais amplo
-        # A maioria das ligas da ESPN responde bem apenas com o slug
-        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?limit=100"
-        
-        try:
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            response = requests.get(url, headers=headers, timeout=10)
-            
-            if response.status_code != 200: continue
-            data = response.json()
-            
-            for event in data.get('events', []):
-                # Processamento dos jogos...
-                status_type = event['status']['type']['name']
-                date_utc = pd.to_datetime(event['date'])
-                date_local = date_utc.tz_convert('America/Sao_Paulo')
-                date_raw = date_local.replace(tzinfo=None)
-                
-                # Filtra apenas o que for de hoje para frente
-                if date_raw < pd.Timestamp.now().normalize(): continue
-                
-                comp = event['competitions'][0]
-                home_node = comp['competitors'][0]
-                away_node = comp['competitors'][1]
-                
-                h_team = home_node['team']['displayName'] if home_node['homeAway'] == 'home' else away_node['team']['displayName']
-                a_team = away_node['team']['displayName'] if away_node['homeAway'] == 'away' else home_node['team']['displayName']
-                
-                todos_jogos.append({
-                    "UID": f"{nome_liga}_{date_raw.strftime('%Y%m%d')}_{h_team}",
-                    "League": nome_liga, "Date": date_raw, "DateStr": date_raw.strftime("%d/%m/%Y"),
-                    "Time": date_raw.strftime("%H:%M"), "Home": h_team, "Away": a_team,
-                    "GOLS_HOME": np.nan, "GOLS_AWAY": np.nan, "Score": "vs", "Status": status_type
-                })
-        except Exception:
-            continue
-            
-      # 2. CAPTURA DA BASE HISTÓRICA
-    url_hist = "20260101-20260601"
-    for nome_liga, config in LIGAS_MAPA.items():
-        time.sleep(3.5) # Delay maior para buscas históricas pesadas
-        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates={url_hist}&limit=1000"
-        try:
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            response = requests.get(url, headers=headers, timeout=15)
-            if response.status_code != 200: continue
-            data = response.json()
-            for event in data.get('events', []):
-                # ... (restante do seu código histórico permanece o mesmo)
-                status_type = event['status']['type']['name']
-                if status_type not in ["STATUS_FULL_TIME", "STATUS_FINAL"]: continue
-                
-                date_utc = pd.to_datetime(event['date'])
-                date_local = date_utc.tz_convert('America/Sao_Paulo')
-                date_raw = date_local.replace(tzinfo=None)
-                
-                comp = event['competitions'][0]
-                home_node = comp['competitors'][0]
-                away_node = comp['competitors'][1]
-                
-                h_team = home_node['team']['displayName'] if home_node['homeAway'] == 'home' else away_node['team']['displayName']
-                a_team = away_node['team']['displayName'] if away_node['homeAway'] == 'away' else home_node['team']['displayName']
-                h_score = int(home_node['score']) if home_node['homeAway'] == 'home' else int(away_node['score'])
-                a_score = int(away_node['score']) if away_node['homeAway'] == 'away' else int(home_node['score'])
-                
-                uid = f"HIST_{nome_liga}_{date_raw.strftime('%d%m%Y')}_{h_team}_vs_{a_team}".replace(" ", "_")
-                todos_jogos.append({
-                    "UID": uid, "League": nome_liga, "Date": date_raw, "DateStr": date_raw.strftime("%d/%m/%Y"),
-                    "Time": date_raw.strftime("%H:%M"), "Home": h_team, "Away": a_team,
-                    "GOLS_HOME": h_score, "GOLS_AWAY": a_score, "Score": f"{h_score}–{a_score}", "Status": status_type
-                })
-        except Exception:
-            continue
+    if len(t) < 3: t = df_hist[(df_hist["League"] == liga_jogo)].copy()
+    if len(t) == 0: return 1.0, 1.0
+    t.loc[:, "peso"] = peso_temporal(t["Date"], data_ref)
+    
+    if side == "home":
+        atk = np.average(t["GOLS_HOME"], weights=t["peso"])
+        defe = np.average(t["GOLS_AWAY"], weights=t["peso"])
+    else:
+        atk = np.average(t["GOLS_AWAY"], weights=t["peso"])
+        defe = np.average(t["GOLS_HOME"], weights=t["peso"])
+    
+    fator = min(len(t) / 8, 1)
+    ataque = fator * (atk / (l_home_mean if side == "home" else l_away_mean)) + (1 - fator)
+    defesa = fator * (defe / (l_away_mean if side == "home" else l_home_mean)) + (1 - fator)
+    return np.clip(ataque, 0.50, 2.20), np.clip(defesa, 0.50, 2.20)
 
-    df = pd.DataFrame(todos_jogos)
-    if not df.empty:
-        df["TOTALGOALS"] = df["GOLS_HOME"] + df["GOLS_AWAY"]
-        df = df.drop_duplicates(subset=["UID"], keep='first')
-    return df
+def dixon_coles(lh, la, rho=-0.1, max_g=10):
+    p_h = poisson.pmf(np.arange(max_g + 1), lh)
+    p_a = poisson.pmf(np.arange(max_g + 1), la)
+    m = np.outer(p_h, p_a)
+    m[0, 0] *= (1 - lh * la * rho)
+    m[0, 1] *= (1 + lh * rho)
+    m[1, 0] *= (1 + la * rho)
+    m[1, 1] *= (1 - rho)
+    return m / m.sum()
 
-# ... (Mantenha o restante das suas funções de matemática e UI abaixo conforme o código original)
+# segunda parte2
 
+def detectar_melhor_valor(hw, d, aw, o15, o25, u35, btts, xg, home, away):
+    if hw > 62: return f"🔥 Vitória {home}"
+    if aw > 45: return f"🚀 Vitória {away}"
+    if o25 > 58 and xg > 2.7: return "⚽ Over 2.5"
+    if btts > 58: return "🎯 BTTS SIM"
+    if (aw + d) > 68: return f"🛡️ Dupla Chance {away}/Empate"
+    if o15 > 82: return "🛡️ Over 1.5"
+    return "⚖️ Sem Value"
+
+# Carregamento e setup
 df = carregar_dados_online()
+df_future, df_hist = df[df["GOLS_HOME"].isna()].copy(), df[df["GOLS_HOME"].notna()].copy()
 
-if df.empty:
-    st.error("Nenhum dado pôde ser coletado das APIs online neste momento.")
-    st.stop()
+st.subheader("📊 Scanner de Mercado & Sinais Ativos")
+if not df_hist.empty:
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Jogos Históricos", len(df_hist))
+    c2.metric("Média Gols", round(df_hist["TOTALGOALS"].mean(), 2))
+    c3.metric("Over 2.5", f"{((df_hist['TOTALGOALS']>2.5).mean()*100):.1f}%")
+    c4.metric("BTTS", f"{(((df_hist['GOLS_HOME']>0)&(df_hist['GOLS_AWAY']>0)).mean()*100):.1f}%")
 
-# =========================================================
-# SEPARAÇÃO DINÂMICA INTEGRAL 
-# =========================================================
-df_future = df[df["GOLS_HOME"].isna()].copy()
-df_hist = df[df["GOLS_HOME"].notna()].copy()
-
+saida = []
+for _, r in df_future.iterrows():
+    # Cálculo das médias (ajustar conforme seu dicionário)
+    liga_h_mean = df_hist[df_hist["League"] == r["League"]]["GOLS_HOME"].mean()
+    liga_a_mean = df_hist[df_hist["League"] == r["League"]]["GOLS_AWAY"].mean()
+    
+    ah, dh = forca_time(r["Home"], "home", r["Date"], r["League"], liga_h_mean, liga_a_mean)
+    aa, da = forca_time(r["Away"], "away", r["Date"], r["League"], liga_h_mean, liga_a_mean)
+    
+    xg_h = np.clip(((ah * da * liga_h_mean) * 0.65 + liga_h_mean * 0.35), 0.2, 2.6)
+    xg_a = np.clip(((aa * dh * liga_a_mean) * 0.65 + liga_a_mean * 0.35), 0.2, 2.4)
+    
+    p = dixon_coles(xg_h, xg_a)
+    btts = (1 - p[0, :].sum() - p[:, 0].sum() + p[0, 0]) * 100
+    placar_correto = f"{np.unravel_index(np.argmax(p), p.shape)[0]}x{np.unravel_index(np.argmax(p), p.shape)[1]}"
+    
+    # ... [Manter seus cálculos de home_win, draw, away_win, over15, over25, under35]
 # =========================================================
 # FUNÇÕES MATEMÁTICAS E PREDITIVAS (DIXON-COLES)
 # =========================================================
@@ -225,126 +171,37 @@ def obter_melhor_opcao_anytime(p, home, away):
     melhor_label = max(opcoes, key=opcoes.get)
     return melhor_label, opcoes[melhor_label]
 
-# =========================================================
-# EXIBIÇÃO DO SCANNER E SELETOR DE DATAS
-# =========================================================
-st.subheader("📊 Scanner de Mercado & Sinais Ativos")
+    #FINAL DA DYXON COLES========================================
 
-saida = []
-if not df_future.empty:
-    for _, r in df_future.iterrows():
-        data_ref = r["Date"]
-        home = r["Home"]
-        away = r["Away"]
-        liga_corrente = r["League"]
+    sugestao_value = detectar_melhor_valor(home_win, draw, away_win, over15, over25, under35, btts, xg_h+xg_a, r["Home"], r["Away"])
+    
+    saida.append({
+        "Date": r["DateStr"], "Time": r["Time"], "Home": r["Home"], "Away": r["Away"], "League": r["League"],
+        "💡 Sugestão Value": sugestao_value, "BTTS %": round(btts,1), "Placar Provável": placar_correto,
+        "Expected Goals": round(xg_h + xg_a, 2), "Home Win %": round(home_win, 1), "Draw %": round(draw, 1),
+        "Away Win %": round(away_win, 1), "Over 1.5 %": round(over15, 1), "Over 2.5 %": round(over25, 1),
+        "Under 3.5 %": round(under35, 1)
+    })
 
-        df_hist_liga = df_hist[df_hist["League"] == liga_corrente]
-        liga_home_mean = max(df_hist_liga["GOLS_HOME"].mean(), 1.2) if not df_hist_liga.empty else LIGAS_MAPA[liga_corrente]["base_home"]
-        liga_away_mean = max(df_hist_liga["GOLS_AWAY"].mean(), 1.0) if not df_hist_liga.empty else LIGAS_MAPA[liga_corrente]["base_away"]
+    #======================PARTE 3
 
-        ah, dh = forca_time(home, "home", data_ref, liga_corrente, liga_home_mean, liga_away_mean)
-        aa, da = forca_time(away, "away", data_ref, liga_corrente, liga_home_mean, liga_away_mean)
-
-        xg_h = np.clip((ah * da * liga_home_mean), 0.3, 2.6)
-        xg_a = np.clip((aa * dh * liga_away_mean), 0.3, 2.4)
-
-        p = dixon_coles(xg_h, xg_a)
-        home_win = np.sum(np.tril(p, -1)) * 100
-        draw = np.sum(np.diag(p)) * 100
-        away_win = np.sum(np.triu(p, 1)) * 100
-
-        max_g = p.shape[0]
-        gols_combinados = np.array([np.sum([p[i, j] for i in range(max_g) for j in range(max_g) if i + j == k]) for k in range(21)])
-
-        over15 = (1 - gols_combinados[0] - gols_combinados[1]) * 100
-        over25 = (1 - np.sum(gols_combinados[:3])) * 100
-        under35 = np.sum(gols_combinados[:4]) * 100
-        xg_total = xg_h + xg_a
-
-        sugestao_value = detectar_melhor_valor(home_win, draw, away_win, over15, over25, under35, xg_total, home, away)
-        lbl_anytime, prob_anytime = obter_melhor_opcao_anytime(p, home, away)
-
-        saida.append({
-            "Date": r["DateStr"], "Time": r["Time"], "Home": home, "Away": away, "League": liga_corrente,
-            "💡 Sugestão Value": sugestao_value, "anytime_label": lbl_anytime, "anytime_prob": prob_anytime,
-            "anytime_odd_justa": 100 / max(prob_anytime, 1.0), "Over 1.5 %": round(over15, 1), 
-            "Over 2.5 %": round(over25, 1), "Under 3.5 %": round(under35, 1),
-            "Home Win %": round(home_win, 1), "Draw %": round(draw, 1), "Away Win %": round(away_win, 1), "Expected Goals": round(xg_total, 2)
-        })
-
+    # Continuação do bloco de exibição
 if saida:
     df_proj = pd.DataFrame(saida)
-    datas_disponiveis = sorted(df_proj["Date"].unique(), key=lambda x: pd.to_datetime(x, format="%d/%m/%Y"))
+    data_sel = st.selectbox("🎯 Filtrar Rodada:", sorted(df_proj["Date"].unique()))
     
-    col_sel, _ = st.columns([1, 3])
-    with col_sel:
-        data_selecionada = st.selectbox("🎯 Filtrar Rodada por Data (Próximos Jogos):", datas_disponiveis)
-    
-    df_proj_filtrado = df_proj[df_proj["Date"] == data_selecionada]
-
-    for _, jogo in df_proj_filtrado.iterrows():
+    for _, jogo in df_proj[df_proj["Date"] == data_sel].iterrows():
         st.markdown(f"""
-        <div class="match-box" style="margin-bottom: 0px; border-bottom-left-radius: 0px; border-bottom-right-radius: 0px;">
-            <div class="match-header">
-                <span>📅 Evento: {jogo['Date']} - {jogo['Time']} | Projeção Quantitativa Dixon-Coles</span>
-                <span class="league-badge">{jogo['League']}</span>
-            </div>
-            <div class="row" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
-                <div style="flex: 1; min-width: 280px;">
-                    <span class="team-name">{jogo['Home']}</span>
-                    <span class="vs-badge">VS</span>
-                    <span class="team-name">{jogo['Away']}</span>
-                    <div style="margin-top: 12px;">
-                        <span class="value-badge">{jogo['💡 Sugestão Value']}</span>
-                        <span style="margin-left: 10px; font-size:13px; color:#475569; font-weight:bold;">📊 xG Estimado: {jogo['Expected Goals']}</span>
-                    </div>
-                </div>
-                <div style="flex: 1.5; min-width: 350px; display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-top: 10px;">
-                    <div><div class="market-title">Casa</div><div class="odd-box-back">{jogo['Home Win %']}%</div></div>
-                    <div><div class="market-title">Empate</div><div class="odd-box-lay">{jogo['Draw %']}%</div></div>
-                    <div><div class="market-title">Fora</div><div class="odd-box-back">{jogo['Away Win %']}%</div></div>
-                    <div><div class="market-title">Mais 1.5</div><div class="odd-box-goals">{jogo['Over 1.5 %']}%</div></div>
-                    <div><div class="market-title">Mais 2.5</div><div class="odd-box-goals">{jogo['Over 2.5 %']}%</div></div>
-                    <div><div class="market-title">Menos 3.5</div><div class="odd-box-goals">{jogo['Under 3.5 %']}%</div></div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="value-report-box" style="margin-top: -1px; margin-bottom: 1.5rem; border-top-left-radius: 0px; border-top-right-radius: 0px; border-top: none;">
-            <div class="report-topic">🎯 Oportunidade Elite: Resultado a Qualquer Momento <span class="badge-value">HÁ VALOR DETECTADO</span></div>
-            <div class="report-text" style="margin-top: 6px;">
-                <b>Entrada Selecionada:</b> {jogo['anytime_label']}<br>
-                <b>Probabilidade de Ocorrência:</b> {jogo['anytime_prob']:.1f}% | <b>Odd Justa Limite:</b> {jogo['anytime_odd_justa']:.2f}
+        <div class="match-box">
+            <div style="font-size: 14px; font-weight: bold; color: #4338CA;">{jogo['Home']} vs {jogo['Away']}</div>
+            <div style="margin-top:10px;"><span class="value-badge">{jogo['💡 Sugestão Value']}</span></div>
+            <div style="margin-top:10px;">📊 xG: {jogo['Expected Goals']} | 🎯 BTTS: {jogo['BTTS %']}% | Placar: {jogo['Placar Provável']}</div>
+            <div style="display:flex; gap:10px; margin-top:10px;">
+                <div class="odd-box-back">Casa: {jogo['Home Win %']}%</div>
+                <div class="odd-box-back">Fora: {jogo['Away Win %']}%</div>
+                <div class="odd-box-goals">Over 2.5: {jogo['Over 2.5 %']}%</div>
             </div>
         </div>
         """, unsafe_allow_html=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.subheader("📊 Histograma de Linhas de Gols Ativas (Soma de xG)")
-    
-    fig, ax = plt.subplots(figsize=(12, 4), facecolor='#1E293B')
-    ax.set_facecolor('#0F172A')
-    
-    confrontos = df_proj_filtrado["Home"] + " vs " + df_proj_filtrado["Away"]
-    bars = ax.bar(confrontos, df_proj_filtrado["Expected Goals"], color='#06B6D4', edgecolor='#0891B2', alpha=0.85, width=0.3)
-    
-    media_liga = df_proj_filtrado["Expected Goals"].mean() if not df_proj_filtrado.empty else 2.5
-    ax.axhline(media_liga, color='#F43F5E', linestyle='--', linewidth=1.5, label=f'Média de xG do Dia: {media_liga:.2f}')
-    
-    ax.set_ylabel("Expected Goals Total", fontsize=10, color='#94A3B8')
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.tick_params(axis='both', colors='#94A3B8', labelsize=9)
-    ax.grid(axis='y', linestyle=':', alpha=0.2, color='#94A3B8')
-    
-    for bar in bars:
-        height = bar.get_height()
-        ax.annotate(f'{height:.2f}', xy=(bar.get_x() + bar.get_width() / 2, height),
-                    xytext=(0, 4), textcoords="offset points", ha='center', va='bottom', fontsize=9, color='#06B6D4', fontweight='bold')
-
-    plt.xticks(rotation=10, ha='right')
-    plt.legend(facecolor='#0F172A', edgecolor='#334155', labelcolor='white')
-    plt.tight_layout()
-    st.pyplot(fig)
 else:
-    st.info("Nenhum confronto futuro sem resultado foi retornado para a janela de 14 dias.")
+    st.info("Nenhum dado retornado.")
