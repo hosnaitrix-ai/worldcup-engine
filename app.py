@@ -53,7 +53,7 @@ st.title("📊 ANÁLISE DE FUTEBOL - By Freed Cesar")
 st.markdown("---")
 
 # =========================================================
-# DICIONÁRIO DE CONFIGURAÇÃO DE LIGAS
+# DICIONÁRIO DE CONFIGURAÇÃO DE LIGAS SELECIONADAS
 # =========================================================
 LIGAS_MAPA = {
     "Brasileirão - Série A": {"slug": "bra.1", "base_home": 1.45, "base_away": 1.05},
@@ -76,14 +76,14 @@ LIGAS_MAPA = {
 }
 
 # =========================================================
-# MOTOR DE CAPTURA ONLINE MULTI-LIGA (PADRÃO PLANILHA)
+# MOTOR DE CAPTURA ONLINE MULTI-LIGA DEFINITIVO
 # =========================================================
 @st.cache_data(ttl=300)
 def carregar_dados_online():
     todos_jogos = []
     
     for nome_liga, config in LIGAS_MAPA.items():
-        # Trava anti-duplicados ISOLADA por liga para não comprometer outros campeonatos
+        # Trava anti-duplicados estrita por liga para não colidir com outros campeonatos
         times_no_dia_da_liga = set()
         
         url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates=20260101-20261231&limit=300"
@@ -95,7 +95,7 @@ def carregar_dados_online():
             for event in data.get('events', []):
                 status_type = event['status']['type']['name']
                 
-                # Tratamento de data e fuso horário
+                # Tratamento de data e conversão para fuso local
                 date_utc = pd.to_datetime(event['date']).tz_convert('UTC')
                 if date_utc.hour in [0, 4] and date_utc.minute == 0:
                     date_raw = date_utc.replace(tzinfo=None)
@@ -120,7 +120,7 @@ def carregar_dados_online():
                 if not h_team or not a_team or h_team == a_team:
                     continue
 
-                # Chaves diárias individuais para controle de concorrência na mesma data
+                # Trava cirúrgica de repetição de times na mesma data dentro daquela liga específica
                 confronto_chave_home = f"{date_str_key}_{h_team}"
                 confronto_chave_away = f"{date_str_key}_{a_team}"
                 
@@ -131,7 +131,7 @@ def carregar_dados_online():
                     h_score = int(home_node['score']) if home_node['homeAway'] == 'home' else int(away_node['score'])
                     a_score = int(away_node['score']) if away_node['homeAway'] == 'away' else int(home_node['score'])
 
-                # Para linhas sem resultado (Projeções), aplica o bloqueio intra-liga
+                # Para linhas destinadas a Projeções (sem resultado computado)
                 if np.isnan(h_score):
                     if confronto_chave_home in times_no_dia_da_liga or confronto_chave_away in times_no_dia_da_liga:
                         continue 
@@ -162,7 +162,7 @@ def carregar_dados_online():
     df = pd.DataFrame(todos_jogos)
     if not df.empty:
         df["TOTALGOALS"] = df["GOLS_HOME"] + df["GOLS_AWAY"]
-        # Garante a eliminação final de qualquer duplicata residual do JSON
+        # Limpa qualquer ID duplicado ou nós repetidos da API do Pandas
         df = df.drop_duplicates(subset=["UID"], keep='first')
         
     return df
