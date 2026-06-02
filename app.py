@@ -1,5 +1,4 @@
 import sys
-import time
 import requests
 import streamlit as st
 import pandas as pd
@@ -7,40 +6,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import poisson
 
+# Configuração de performance
 if sys.platform == 'win32':
     import asyncio
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-# =========================================================
-# CONFIGURAÇÃO DA PÁGINA & IDENTIDADE VISUAL
-# =========================================================
-st.set_page_config(
-    page_title="LiveScanner Pro - Multi-Liga Online",
-    page_icon="⚡",
-    layout="wide"
-)
-
-st.markdown("""
-    <style>
-    .block-container { padding-top: 1.5rem; padding-bottom: 1.5rem; }
-    h1 { font-weight: 900 !important; color: #0F172A; letter-spacing: -1px; }
-    h3 { font-weight: 700 !important; color: #1E293B; margin-bottom: 0.5rem; }
-    .match-box { background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
-    .match-header { font-size: 12px; color: #64748B; font-weight: 600; text-transform: uppercase; margin-bottom: 0.8rem; border-bottom: 1px solid #F1F5F9; padding-bottom: 4px; display: flex; justify-content: space-between; }
-    .league-badge { background: #F1F5F9; color: #4338CA; padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 11px; }
-    .team-name { font-size: 1.25rem; font-weight: 700; color: #1E293B; }
-    .vs-badge { font-size: 10px; background: #F1F5F9; color: #64748B; padding: 2px 8px; border-radius: 4px; margin: 0 10px; font-weight: bold; }
-    .market-title { font-size: 11px; font-weight: bold; color: #475569; text-transform: uppercase; text-align: center; margin-bottom: 4px; }
-    .odd-box-back { background: #E0F2FE; border: 1px solid #7DD3FC; color: #0369A1; text-align: center; padding: 8px; border-radius: 6px; font-weight: 800; font-size: 15px; }
-    .odd-box-lay { background: #FCE7F3; border: 1px solid #FBCFE8; color: #B91C1C; text-align: center; padding: 8px; border-radius: 6px; font-weight: 800; font-size: 15px; }
-    .odd-box-goals { background: #F0FDF4; border: 1px solid #BBF7D0; color: #166534; text-align: center; padding: 8px; border-radius: 6px; font-weight: 800; font-size: 15px; }
-    .value-badge { background: #4338CA; color: white; padding: 6px 12px; border-radius: 6px; font-weight: 700; font-size: 13px; display: inline-block; }
-    .value-report-box { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px; }
-    .report-topic { font-size: 12px; font-weight: 700; color: #4338CA; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
-    .report-text { font-size: 12.5px; color: #334155; line-height: 1.5; margin-bottom: 4px; }
-    .badge-value { background: #DCFCE7; color: #15803D; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 800; border: 1px solid #BBF7D0; }
-    </style>
-""", unsafe_allow_html=True)
+st.set_page_config(page_title="LiveScanner Pro - Multi-Liga Online", page_icon="⚡", layout="wide")
 
 st.markdown('<p style="color:#6366F1; font-weight:bold; text-transform:uppercase; font-size:12px; margin-bottom:0;">⚡ LiveScanner & Probability Engine</p>', unsafe_allow_html=True)
 st.title("📊 ANÁLISE DE FUTEBOL - By Freed Cesar")
@@ -72,7 +43,7 @@ LIGAS_MAPA = {
 # =========================================================
 # MOTOR DE CAPTURA
 # =========================================================
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=300)
 def carregar_dados_online():
     todos_jogos = []
     
@@ -139,19 +110,22 @@ def peso_temporal(data_jogo, data_ref, xi=0.0065):
     dias = (data_ref - data_jogo).dt.days
     return np.exp(-xi * dias)
 
-def forca_time(team, side, data_ref, liga_jogo, l_home_mean, l_away_mean):
+def forca_time_corrigida(team, side, data_ref, liga_jogo, l_home_mean, l_away_mean, df_hist):
     if df_hist.empty: return 1.0, 1.0
-    jogos = df_hist[(df_hist["Date"] < data_ref) & (df_hist["League"] == liga_jogo)].copy()
+    jogos = df_hist[(df_hist["Date"] < data_ref)].copy()
     t = jogos[jogos["Home"] == team] if side == "home" else jogos[jogos["Away"] == team]
-    if len(t) == 0: return 1.0, 1.0
-    t.loc[:, "peso"] = peso_temporal(t["Date"], data_ref)
+if len(t) < 3: return 1.0, 1.0
+    
+    t.loc[:, "peso"] = np.exp(-0.0065 * (data_ref - t["Date"]).dt.days)
+    
     if side == "home":
-        ataque = min(max(np.average(t["GOLS_HOME"], weights=t["peso"]) / l_home_mean, 0.5), 2.5)
-        defesa = min(max(np.average(t["GOLS_AWAY"], weights=t["peso"]) / l_away_mean, 0.5), 2.5)
+        ataque = np.average(t["GOLS_HOME"], weights=t["peso"]) / l_home_mean
+        defesa = np.average(t["GOLS_AWAY"], weights=t["peso"]) / l_away_mean
     else:
-        ataque = min(max(np.average(t["GOLS_AWAY"], weights=t["peso"]) / l_away_mean, 0.5), 2.5)
-        defesa = min(max(np.average(t["GOLS_HOME"], weights=t["peso"]) / l_home_mean, 0.5), 2.5)
-    return ataque, defesa
+        ataque = np.average(t["GOLS_AWAY"], weights=t["peso"]) / l_away_mean
+        defesa = np.average(t["GOLS_HOME"], weights=t["peso"]) / l_home_mean
+    
+    return np.clip(ataque, 0.5, 2.0), np.clip(defesa, 0.5, 2.0)
 
 def dixon_coles(lh, la, rho=-0.1, max_g=10):
     p_h = poisson.pmf(np.arange(max_g + 1), lh)
@@ -186,8 +160,7 @@ def obter_melhor_opcao_anytime(p, home, away):
 st.subheader("📊 Scanner de Mercado & Sinais Ativos")
 
 if not df_future.empty:
-    saida = []
-    # Cálculo das probabilidades (Mantido)
+    lista_projeções = []
     for _, r in df_future.iterrows():
         data_ref = r["Date"]
         home = r["Home"]
