@@ -25,7 +25,7 @@ st.title("📊 ANÁLISE DE FUTEBOL - By Freed Cesar")
 st.markdown("---")
 
 # =========================================================
-# LIGAS
+# LIGAS (SUÉCIA RESTAURADA)
 # =========================================================
 LIGAS_MAPA = {
     "Brasileirão Série A": {"slug": "bra.1"},
@@ -34,6 +34,8 @@ LIGAS_MAPA = {
     "Eredivisie": {"slug": "ned.1"},
     "MLS": {"slug": "usa.1"},
     "Champions League": {"slug": "champions"},
+
+    # 🇸🇪 SUÉCIA
     "Suécia - Allsvenskan": {"slug": "swe.1"},
     "Suécia - Superettan": {"slug": "swe.2"},
     "Suécia - Damallsvenskan": {"slug": "swe.women.1"},
@@ -47,12 +49,9 @@ def carregar_dados_online():
 
     todos_jogos = []
 
-    hoje = pd.Timestamp.now(tz="America/Sao_Paulo").normalize()
-    limite_futuro = hoje + pd.Timedelta(days=12)
-
     for nome_liga, config in LIGAS_MAPA.items():
 
-        time.sleep(random.uniform(0.7, 1.4))
+        time.sleep(random.uniform(0.7, 1.4))  # anti-bloqueio
 
         url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard"
 
@@ -68,25 +67,15 @@ def carregar_dados_online():
                 date_utc = pd.to_datetime(event["date"], utc=True)
                 date_local = date_utc.tz_convert("America/Sao_Paulo")
 
-                # 🔥 CORREÇÃO CRÍTICA: FILTRO REAL DE FUTURO
-                if date_local.normalize() < hoje:
-                    continue
-                if date_local.normalize() > limite_futuro:
-                    continue
-
                 comp = event["competitions"][0]
                 home = comp["competitors"][0]["team"]["displayName"]
                 away = comp["competitors"][1]["team"]["displayName"]
 
                 status = event["status"]["type"]["name"]
 
-                date_raw = date_local.replace(tzinfo=None)
-
                 todos_jogos.append({
                     "League": nome_liga,
-                    "Date": date_raw,
-                    "DateStr": date_raw.strftime("%d/%m/%Y"),
-                    "Time": date_raw.strftime("%H:%M"),
+                    "Date": date_local,   # mantém datetime real
                     "Home": home,
                     "Away": away,
                     "Status": status
@@ -105,14 +94,25 @@ if df.empty:
     st.stop()
 
 # =========================================================
-# 🔥 GARANTIA FINAL: SOMENTE FUTURO
+# 🔥 CORREÇÃO DEFINITIVA DE DATAS (SEM ERRO TYPEERROR)
 # =========================================================
-df["Date"] = pd.to_datetime(df["Date"])
+df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+df = df.dropna(subset=["Date"])
 
-hoje = pd.Timestamp.now(tz="America/Sao_Paulo").normalize()
-df = df[df["Date"].dt.normalize() >= hoje]
+# remove timezone (padronização total)
+df["Date"] = df["Date"].dt.tz_localize(None)
+
+hoje = pd.Timestamp.now().normalize()
+limite_futuro = hoje + pd.Timedelta(days=12)
+
+# 🔥 FILTRO REAL: HOJE → +12 DIAS
+df = df[
+    (df["Date"].dt.normalize() >= hoje) &
+    (df["Date"].dt.normalize() <= limite_futuro)
+]
 
 df["DateStr"] = df["Date"].dt.strftime("%d/%m/%Y")
+df["Time"] = df["Date"].dt.strftime("%H:%M")
 
 # =========================================================
 # SELETOR DE DATA (CORRIGIDO)
