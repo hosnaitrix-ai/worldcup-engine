@@ -78,7 +78,7 @@ def carregar_dados_online():
     
     hoje = pd.Timestamp.now().normalize()
     # Ajustado para 10 dias conforme solicitado
-    datas_alvo = [hoje + pd.Timedelta(days=i) for i in range(10)]
+    datas_alvo = [hoje + pd.Timedelta(days=i) for i in range(12)]
     
     # 1. CAPTURA DOS JOGOS PROJETADOS (PRÓXIMOS 10 DIAS)
     for data_atual in datas_alvo:
@@ -86,7 +86,7 @@ def carregar_dados_online():
         date_str_key = data_atual.strftime("%d/%m/%Y")
         
         for nome_liga, config in LIGAS_MAPA.items():
-            # Aumentado para 1.2s para evitar bloqueios em massa
+            # Aumentado para 10.2s para evitar bloqueios em massa
             time.sleep(1.2) 
             url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates={date_param}&limit=1000"
             
