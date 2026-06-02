@@ -114,7 +114,7 @@ def carregar_dados_online():
                 h_team = str(h_team).strip()
                 a_team = str(a_team).strip()
                 
-                # CONTROLE RIGOROSO DE DUPLICIDADE POR TIME NO DIA (Estilo Planilha)
+                # CONTROLE RIGOROSO DE DUPLICIDADE POR TIME NO DIA (Filtro Antiruído)
                 pra_chave_home = f"{date_str_key}_{h_team}"
                 pra_chave_away = f"{date_str_key}_{a_team}"
                 
@@ -144,7 +144,7 @@ def carregar_dados_online():
                     "Status": status_type
                 })
                 
-                # Trava o time no dia caso o jogo não possua resultado ainda (Jogo futuro válido)
+                # Trava o time no dia caso o jogo seja futuro (Garante consistência na rodada)
                 if np.isnan(h_score):
                     times_no_dia.add(pra_chave_home)
                     times_no_dia.add(pra_chave_away)
@@ -166,7 +166,7 @@ if df.empty:
     st.stop()
 
 # =========================================================
-# SEPARAÇÃO DINÂMICA INTEGRAL (LÓGICA PLANILHA OFFLINE)
+# SEPARAÇÃO DINÂMICA INTEGRAL 
 # =========================================================
 df_future = df[df["GOLS_HOME"].isna()].copy()
 df_hist = df[df["GOLS_HOME"].notna()].copy()
@@ -319,7 +319,7 @@ if not df_future.empty:
 if saida:
     df_proj = pd.DataFrame(saida)
     
-    # Organiza o seletor com as datas em ordem puramente cronológica
+    # Ordenação estritamente cronológica das abas de datas
     datas_disponiveis = sorted(df_proj["Date"].unique(), key=lambda x: pd.to_datetime(x, format="%d/%m/%Y"))
     
     if datas_disponiveis:
@@ -327,7 +327,6 @@ if saida:
         with col_sel:
             data_selecionada = st.selectbox("🎯 Filtrar Rodada por Data (Próximos Jogos):", datas_disponiveis)
         
-        # Filtro global por data selecionada
         df_proj_filtrado = df_proj[df_proj["Date"] == data_selecionada]
 
         for _, jogo in df_proj_filtrado.iterrows():
@@ -405,7 +404,7 @@ else:
     st.info("Nenhum confronto futuro sem resultado foi retornado pela API neste momento.")
 
 # =========================================================
-# CENTRAL DE LIQUIDEZ (SÓ CARTÕES DE MÉTRICAS)
+# CENTRAL DE LIQUIDEZ 
 # =========================================================
 st.markdown("---")
 with st.expander("🗂️ Central de Liquidez e Banco de Dados Histórico Online"):
