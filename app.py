@@ -72,60 +72,53 @@ LIGAS_MAPA = {
 # =========================================================
 # MOTOR DE CAPTURA COM AJUSTE DE ESTABILIDADE
 # =========================================================
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=600) # Aumentei o cache para 10 minutos
 def carregar_dados_online():
     todos_jogos = []
     
-    hoje = pd.Timestamp.now().normalize()
-    # Ajustado para 10 dias conforme solicitado
-    datas_alvo = [hoje + pd.Timedelta(days=i) for i in range(12)]
-    
-    # 1. CAPTURA DOS JOGOS PROJETADOS (PRÓXIMOS 10 DIAS)
-    for data_atual in datas_alvo:
-        date_param = data_atual.strftime("%Y%m%d")
-        date_str_key = data_atual.strftime("%d/%m/%Y")
+    # Em vez de iterar dias, iteramos ligas. 
+    # A API da ESPN retorna uma janela de jogos ao omitir ou usar range de datas.
+    for nome_liga, config in LIGAS_MAPA.items():
+        time.sleep(2.0) # Delay seguro e eficiente
         
-        for nome_liga, config in LIGAS_MAPA.items():
-            # Aumentado para 5.2s para evitar bloqueios em massa
-            time.sleep(5.2) 
-            url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?dates={date_param}&limit=1000"
+        # URL sem o parâmetro "dates" específico, ou usando um range mais amplo
+        # A maioria das ligas da ESPN responde bem apenas com o slug
+        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{config['slug']}/scoreboard?limit=100"
+        
+        try:
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            response = requests.get(url, headers=headers, timeout=10)
             
-            try:
-                headers = {'User-Agent': 'Mozilla/5.0'} # Adicionado header para simular navegador
-                response = requests.get(url, headers=headers, timeout=15)
+            if response.status_code != 200: continue
+            data = response.json()
+            
+            for event in data.get('events', []):
+                # Processamento dos jogos...
+                status_type = event['status']['type']['name']
+                date_utc = pd.to_datetime(event['date'])
+                date_local = date_utc.tz_convert('America/Sao_Paulo')
+                date_raw = date_local.replace(tzinfo=None)
                 
-                if response.status_code != 200: 
-                    continue
-                    
-                data = response.json()
+                # Filtra apenas o que for de hoje para frente
+                if date_raw < pd.Timestamp.now().normalize(): continue
                 
-                for event in data.get('events', []):
-                    status_type = event['status']['type']['name']
-                    
-                    # Normalização para fuso de Brasília
-                    date_utc = pd.to_datetime(event['date'])
-                    date_local = date_utc.tz_convert('America/Sao_Paulo')
-                    date_raw = date_local.replace(tzinfo=None)
-                    time_str = date_raw.strftime("%H:%M")
-                    
-                    comp = event['competitions'][0]
-                    home_node = comp['competitors'][0]
-                    away_node = comp['competitors'][1]
-                    
-                    h_team = home_node['team']['displayName'] if home_node['homeAway'] == 'home' else away_node['team']['displayName']
-                    a_team = away_node['team']['displayName'] if away_node['homeAway'] == 'away' else home_node['team']['displayName']
-                    
-                    uid = f"{nome_liga}_{date_str_key}_{h_team}_vs_{a_team}".replace(" ", "_")
-                    
-                    todos_jogos.append({
-                        "UID": uid, "League": nome_liga, "Date": date_raw, "DateStr": date_str_key,
-                        "Time": time_str, "Home": h_team, "Away": a_team,
-                        "GOLS_HOME": np.nan, "GOLS_AWAY": np.nan, "Score": "vs", "Status": status_type
-                    })
-            except Exception:
-                continue
-
-    # 2. CAPTURA DA BASE HISTÓRICA
+                comp = event['competitions'][0]
+                home_node = comp['competitors'][0]
+                away_node = comp['competitors'][1]
+                
+                h_team = home_node['team']['displayName'] if home_node['homeAway'] == 'home' else away_node['team']['displayName']
+                a_team = away_node['team']['displayName'] if away_node['homeAway'] == 'away' else home_node['team']['displayName']
+                
+                todos_jogos.append({
+                    "UID": f"{nome_liga}_{date_raw.strftime('%Y%m%d')}_{h_team}",
+                    "League": nome_liga, "Date": date_raw, "DateStr": date_raw.strftime("%d/%m/%Y"),
+                    "Time": date_raw.strftime("%H:%M"), "Home": h_team, "Away": a_team,
+                    "GOLS_HOME": np.nan, "GOLS_AWAY": np.nan, "Score": "vs", "Status": status_type
+                })
+        except Exception:
+            continue
+            
+      # 2. CAPTURA DA BASE HISTÓRICA
     url_hist = "20260101-20260601"
     for nome_liga, config in LIGAS_MAPA.items():
         time.sleep(3.5) # Delay maior para buscas históricas pesadas
